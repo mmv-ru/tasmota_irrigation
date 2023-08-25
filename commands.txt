@@ -1,0 +1,9 @@
+Backlog SSID1 mmv-int; Password1 MoFaifuiz4ahzohb;
+Backlog Template {"NAME":"mmv-ESP-watering","GPIO":[17,148,5,149,6,0,0,0,0,255,255,0,0],"FLAG":1,"BASE":18}; Module 0;
+Backlog MqttHost 172.17.200.197; MqttUser tasmota; MqttPassword <password>; SetOption53 1; PowerRetain on;
+
+Backlog 
+
+Backlog DeviceName tasmota_9a3968; FriendlyName Watering;
+
+Backlog Timezone +3; NtpServer1 172.17.252.1; NtpServer2 ru.pool.ntp.org; NtpServer3 0.ru.pool.ntp.org;

@@ -1,0 +1,168 @@
+0,5 l  14413 импульсов датчика
+0,034 ml на импульс
+Насос не обеспечивает достаточного подъёма воды.
+
+20230812
+CounterDebounceLow 2
+CounterDebounceHigh 2
+
+
+Для обеспечения достаточного подъёма воды подключил два насоса последовательно.
+
+20230813T2321
+После полива 12 числа (в процессе экспериментов с мотром) показания датчика влажности постепенно снижались
+Насколько я помню сразу после серии поливов было около 900
+20230813Е0053 887
+20230813T2323 807
+20230814T0138 798
+20230814T0058 804
+20230814T0308 796
+20230814T0528 793
+20230814T1058 785
+
+15:08:38.682 0
+15:08:42.058  33 до датчика потока
+
+15:09:11.741 33
+15:09:21.946 252  потекло из форсунок
+
+15:18:40.764 0
+15:18:46.552 9 до датчика потока
+
+15:39:46.255  0
+15:39:49.852 14 до датчика потока
+
+15:42:13.775 0
+15:42:17.115 8 до датчика потока
+
+15:43:32.982 0
+15:43:36.231 10 до датчика потока
+
+
+15:46:29.489 0
+15:46:31.732 0 Не доходя до датчика потока
+
+15:46:32.752 ON 0
+15:46:34.125 OFF 0 Не доходя до датчика потока
+
+
+
+
+15:53:10.284 0
+15:53:31.129 tele/tasmota_9A3968/SENSOR = {"Time":"2023-08-14T15:53:31","COUNTER":{"C1":425,"C2":13},"ANALOG":{"A1":784,"A2":0},"BME280":{"Temperature":27.6,"Humidity":51.8,"DewPoint":16.8,"Pressure":989.1},"ESP32":{"Temperature":53.3},"PressureUnit":"hPa","TempUnit":"C"}
+15:54:03.295 {"Counter1":1108}
+15:54:04.293 {"Counter1":1128}
+15:54:05.452 {"Counter1":1151}
+15:54:06.585 {"Counter1":1174}
+15:54:07.569 {"Counter1":1194}
+15:54:08.395 {"Counter1":1210}
+15:54:09.217 {"Counter1":1227}
+15:54:09.975 {"Counter1":1242}
+15:54:13.813 {"Counter1":1320}
+15:54:19.051 {"Counter1":1426}
+15:54:20.214 {"Counter1":1449}
+15:54:21.028 {"Counter1":1466}
+15:54:22.218 {"Counter1":1490}
+15:54:38.718 {"POWER1":"OFF"}
+15:54:38.721 OFF
+15:56:28.062 {"Counter1":1833} 88 с включения, 1833 импульса (62 мл ??), перебор с поливом, много воды в поддоне.
+
+20230814T160257  датчик почвы 720
+
+20230814T2238 689
+
+Очень странно что показания датчика влажности почвы имеют тренд только к снижению (повышению влажности)
+может это переходный процесс, почва усаживается вокруг воткнутого датчика?
+
+20230815T0518 687 После этого минимума показания начали расти.
+20230815T1433 701
+
+20230816T152733 720 Похоже есть кореляция показаний датчика влажности с температурой. При более высокой температуре показывает более сухую почву.
+
+20230817T1408 733
+
+20230818
+16:12:33.349 MQT: stat/tasmota_9A3968/POWER1 = ON
+16:12:41.778 MQT: stat/tasmota_9A3968/POWER1 = OFF до форсунок
+16:13:31.422 MQT: stat/tasmota_9A3968/RESULT = {"Counter1":167}
+
+16:41:38     792
+16:41:53.618 MQT: stat/tasmota_9A3968/POWER1 = ON
+16:42:02.776 MQT: stat/tasmota_9A3968/POWER1 = OFF Counter1:180 до фонсунок
+16:42:14.871 MQT: stat/tasmota_9A3968/POWER1 = ON
+16:42:58.874 MQT: stat/tasmota_9A3968/POWER1 = OFF
+16:43:55.460 MQT: stat/tasmota_9A3968/RESULT = {"Counter1":1160} до поддона
+16:46:38      736
+16:51:38      735
+17:11:38      740
+
+20230821T022133 ANALOG#A1 :771
+20230822T0646 ANALOG#A1 :816
+20230822T1611 ANALOG#A1 :826 
+
+Калибровка датчика потока
+"Counter1":3709}
+20:08:45.737 FinishRule  COUNTER#C1>=4299
+20:08:45.743 Rule on  COUNTER#C1>=4299  set
+20:09:09.969 Flood limit by counter 4361 by rule
+20:09:09.985 MQT: stat/tasmota_9A3968/RESULT = {"POWER1":"OFF"}
+20:09:09.987 MQT: stat/tasmota_9A3968/POWER1 = OFF
+20:09:10.160 Watering pump OFF
+20:09:10.163 FinishRule removed
+20:09:10.164 CounterDelta:  655
+20:09:10.178 MQT: stat/tasmota_9A3968/RESULT = {"Counter1":4224}
+20:09:10.183 Water flooded 515
+20:11:33.016 CMD: counter1
+20:11:33.027 MQT: stat/tasmota_9A3968/RESULT = {"Counter1":4227}
+20:58:18.269 MQT: stat/tasmota_9A3968/RESULT = {"Counter1":4227}
+По факту вылилось 99 мл.
+
+
+21:27:31.251 Watering pump ON
+21:27:31.253 Counter:  4227
+21:27:31.255 FinishRule  COUNTER#C1>=4817
+21:27:31.262 Rule on  COUNTER#C1>=4817  set
+21:27:49.105 Flood limit by counter 4841 by rule
+21:27:49.121 MQT: stat/tasmota_9A3968/RESULT = {"POWER1":"OFF"}
+21:27:49.124 MQT: stat/tasmota_9A3968/POWER1 = OFF
+21:27:49.225 Watering pump OFF
+21:27:49.229 FinishRule removed
+21:27:49.231 Counter:  4843
+21:27:49.233 CounterDelta:  616
+21:27:49.248 MQT: stat/tasmota_9A3968/RESULT = {"Counter1":4703}
+21:27:49.255 Counter compensated:  4843
+21:27:49.257 Water flooded 476
+по весам 88 мл.
+
+21:31:29.912 Watering pump ON
+21:31:29.915 Counter:  4709
+21:31:29.916 FinishRule  COUNTER#C1>=5299
+21:31:29.923 Rule on  COUNTER#C1>=5299  set
+21:31:47.249 Flood limit by counter 5307 by rule
+21:31:47.271 MQT: stat/tasmota_9A3968/RESULT = {"POWER1":"OFF"}
+21:31:47.274 MQT: stat/tasmota_9A3968/POWER1 = OFF
+21:31:47.510 Watering pump OFF
+21:31:47.513 FinishRule removed
+21:31:47.516 Counter:  5313
+21:31:47.517 CounterDelta:  604
+21:31:47.531 MQT: stat/tasmota_9A3968/RESULT = {"Counter1":5173}
+21:31:47.538 Counter compensated:  5313
+21:31:47.540 Water flooded 464
+по весам 87 мл.
+
+21:35:31.878 Watering pump ON
+21:35:31.880 Counter:  5194
+21:35:31.882 FinishRule  COUNTER#C1>=7334
+21:35:31.889 Rule on  COUNTER#C1>=7334  set
+21:36:35.054 Flood limit by counter 7348 by rule
+21:36:35.067 MQT: stat/tasmota_9A3968/RESULT = {"POWER1":"OFF"}
+21:36:35.071 MQT: stat/tasmota_9A3968/POWER1 = OFF
+21:36:35.206 Watering pump OFF
+21:36:35.209 FinishRule removed
+21:36:35.211 Counter:  7351
+21:36:35.212 CounterDelta:  2157
+21:36:35.226 MQT: stat/tasmota_9A3968/RESULT = {"Counter1":7211}
+21:36:35.231 Counter compensated:  7351
+21:36:35.233 Water flooded 2017
+По весам 310 мл.
+
