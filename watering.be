@@ -1,5 +1,7 @@
 import webserver
 
+var TIMERID_ENDFASTTELE = 1
+
 class Watering
     var FlowSensorCalibration
     var Conf_Toggle
@@ -40,6 +42,7 @@ class Watering
                 tasmota.cmd("Power1 0")
                 return
             end
+            tasmota.cmd("TelePeriod 10")
             self.Counter1BeforeStart = Counter1
             print("Counter: ", Counter1)
             self.FinishRule = "COUNTER#C1>="..(Counter1+self.Counter1Backflow+self.Counter1Flood)
@@ -70,6 +73,7 @@ class Watering
                 self.LastFloodVol = CounterDelta
             end 
             self.Power1 = 0
+            tasmota.set_timer(60*1000, /->self.timer_endfasttele_after_flooded(), TIMERID_ENDFASTTELE)
         else
             print("WARNING: Watering pump state ", value['State'])
         end
@@ -78,6 +82,11 @@ class Watering
     def rule_flooded(value, trigger)
         print("Flood limit by counter ".. value .. " by rule")
         tasmota.cmd("Power1 0")
+    end
+
+    def timer_endfasttele_after_flooded()
+        print("Timer: end fast teleperiod after flooded")
+        tasmota.cmd("TelePeriod 1") # Default
     end
 
     def check_flood()
