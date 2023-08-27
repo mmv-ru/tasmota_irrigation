@@ -133,6 +133,7 @@ class Watering
         self.LastMillisDelta = 1000
         self.MillisDeltaEMA = 1000
         self.MillisDeltaStdDevEMA = 0
+        self.Flow1 = 0
     end
 
     def destroy()
@@ -164,21 +165,34 @@ class Watering
     def WaterFlow()
         import math
         var Res
-        var CurMillis = tasmota.millis()
-        var CurMillisDelta = CurMillis - self.LastMillis
-        var Counter1Delta = self.Counter1 - self.LastCounter1
-
-        Res = (Counter1Delta * 1000.0) / CurMillisDelta 
-
         var MillsEMAN = 30
+        var CurMillis = tasmota.millis()
+        if self.LastMillis != nil
+            var CurMillisDelta = CurMillis - self.LastMillis
+            var Counter1Delta = self.Counter1 - self.LastCounter1
 
-        #self.Flow1EMA = (math.floor(self.Flow1EMA*(MillsEMAN - 1)*10.0) + Res*10.0) / (MillsEMAN*10)
+            Res = (Counter1Delta * 1000.0) / CurMillisDelta 
 
-        # Step
-        self.LastMillis = CurMillis
-        self.LastCounter1 = self.Counter1
-        
-        return Res
+            #self.Flow1EMA = (math.floor(self.Flow1EMA*(MillsEMAN - 1)*10.0) + Res*10.0) / (MillsEMAN*10)
+            self.Flow1 = Res
+
+            # Step
+            self.LastCounter1 = self.Counter1
+            if self.Power1 == 1
+                self.LastMillis = CurMillis
+            elif self.Power1 == 0
+                self.LastMillis = nil
+            else
+                raise "wp_Incorect_self_power" ""
+            end
+        else
+            if self.Power1 == 1
+                self.LastMillis = CurMillis
+            elif self.Power1 == 0
+            else
+                raise "wp_Incorect_self_power" ""
+            end
+        end
     end
 
     def every_second()
@@ -197,7 +211,9 @@ class Watering
         end
         self.Counter1 = sensors['COUNTER']['C1']
 
-        self.Flow1 = self.WaterFlow()
+        if self.Power1 == 1
+            self.WaterFlow()
+        end
         #self.timer_stability_stats()
     end
 
