@@ -120,7 +120,7 @@ class Watering
 
         self.Counter1Backflow = 140
         self.Counter1Flood = 450
-        self.CounterScale = 0.034 # ml/count
+        self.CounterScale = 0.1449 # ml/count
         self.SoilDry = 830
         self.SoilWet = 720
 
