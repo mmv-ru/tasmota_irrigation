@@ -24,6 +24,7 @@ class Watering
     var LastMillisDelta
     var MillisDeltaEMA
     var MillisDeltaStdDevEMA
+    var Power1
 
     def rule_power(value, trigger)
         import string
@@ -33,6 +34,7 @@ class Watering
         #print(string.format("value: %s trigger: %s", value, trigger))
         if value['State'] == 1
             print("Watering pump ON")
+            self.Power1 = 1
             if self.A1ema <= self.SoilWet
                 print("Too wet to flood. Stop pump.")
                 tasmota.cmd("Power1 0")
@@ -67,6 +69,7 @@ class Watering
                 self.LastFloodTime = tasmota.rtc()['local']
                 self.LastFloodVol = CounterDelta
             end 
+            self.Power1 = 0
         else
             print("WARNING: Watering pump state ", value['State'])
         end
