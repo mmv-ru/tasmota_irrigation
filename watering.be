@@ -462,11 +462,6 @@ class Watering
         print("Autoflood: Closure test A1EMA ", self.SoilSensors[0].RawEma)
         if self.SoilSensors[0].IsDry() && !self.AutofloodInProcess
             print("Autoflood: scheduled start")
-            if self.estimateflood()
-               self.PlannedFlood = self.estimateflood()
-            else
-               self.PlannedFlood = self.Counter1FloodDefault
-            end
             # Save previous session stats
             self.PrevSoilHPreFlood = self.SoilHPreFlood
             self.PrevSoilHPostFlood = self.SoilHPostFlood
@@ -477,6 +472,12 @@ class Watering
                 import introspect
                 introspect.set(persist, p, introspect.get(self, p, nil))
                 persist.save()
+            end
+
+            if self.estimateflood()
+               self.PlannedFlood = self.estimateflood()
+            else
+               self.PlannedFlood = self.Counter1FloodDefault
             end
 
             # Init new flood session
