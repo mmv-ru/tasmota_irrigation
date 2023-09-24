@@ -614,7 +614,13 @@ class Watering
             end
         end
         if self.SoilMaxHymidity &&  !self.SoilMaxHymidityConfirmed && self.SoilSensors[0].RawEma > self.SoilMaxHymidity + 5
+            print("SoilMaxHymidityConfirmed")
             self.SoilMaxHymidityConfirmed = true
+            import persist
+            import introspect
+            introspect.set(persist, 'SoilMaxHymidity', self.SoilMaxHymidity)
+            introspect.set(persist, 'SoilMaxHymidityTime', self.SoilMaxHymidityTime)
+            persist.save()
         end
 
         #print("every_second: processed")
