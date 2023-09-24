@@ -1,9 +1,6 @@
 import webserver
 import strict
 
-var TIMERID_ENDFASTTELE = 1
-var TIMERID_SOILTRANSITION_AFTERFLOOD = 2
-
 def EMA(oldEMA, N, NewValue)
     import math
 #    return (math.floor(oldEMA*(N - 1)*10.0) + NewValue*10.0) / (N*10)
@@ -406,11 +403,11 @@ class Watering
             if CounterDelta > 0
                 self.LastFloodTime = tasmota.rtc()['local']
                 self.LastFloodVol += CounterDelta
-                tasmota.set_timer(40*60*1000, /->self.timer_soil_transition_after_flooded(), TIMERID_SOILTRANSITION_AFTERFLOOD)
+                tasmota.set_timer(40*60*1000, /->self.timer_soil_transition_after_flooded(), "ID_SOILTRANSITION_AFTERFLOOD")
             else
                 self.PauseSoilMaxStat = false
             end
-            tasmota.set_timer(60*1000, /->self.timer_endfasttele_after_flooded(), TIMERID_ENDFASTTELE)
+            tasmota.set_timer(60*1000, /->self.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
         else
             print("WARNING: Unexpected watering pump state ", value['State'])
         end
