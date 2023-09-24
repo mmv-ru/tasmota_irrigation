@@ -439,13 +439,17 @@ class Watering
         else
             # Flooding session finished?
             print("Autofloood: Wet lewel reached. End flooding session")
-            self.AutofloodInProcess = false
-            self.SoilMaxHymidity = nil
-            self.SoilMaxHymidityTime = nil
-            self.PrevFloodedVol = self.LastFloodVol
-            self.PauseSoilMaxStat = false
-            print("Autofloood: Wet lewel reached. Finish flooding session")
+            self._autoflood_end()
         end
+    end
+
+    def _autoflood_end()
+        self.AutofloodInProcess = false
+        self.SoilMaxHymidity = nil
+        self.SoilMaxHymidityTime = nil
+        self.PrevFloodedVol = self.LastFloodVol
+        self.PauseSoilMaxStat = false
+        print("Autofloood: finished")
     end
 
     def auto_flood()
