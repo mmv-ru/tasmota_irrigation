@@ -613,7 +613,7 @@ class Watering
                 self.SoilMaxHymidityTime = tasmota.rtc()['local']
             end
         end
-        if !self.SoilMaxHymidity && self.SoilSensors[0].RawEma > self.SoilMaxHymidity + 5
+        if self.SoilMaxHymidity &&  !self.SoilMaxHymidityConfirmed && self.SoilSensors[0].RawEma > self.SoilMaxHymidity + 5
             self.SoilMaxHymidityConfirmed = true
         end
 
