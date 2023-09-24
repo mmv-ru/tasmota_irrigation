@@ -554,9 +554,8 @@ class Watering
         print("Sensors initialized")
 
         for p: ['SoilHPreFlood', 'SoilHPostFlood', 'PrevSoilMaxHymidity',
-            introspect.set(self, p, persist.find(p, nil))
                 'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
-
+            introspect.set(self, p, persist.find(p, nil))
         end
 
         self.MaxPumpRun = 40
