@@ -343,6 +343,12 @@ class Watering
     #    var power = tasmota.get_power()
     #end
 
+    def rule_button1(value, trigger)
+        print(value, trigger)
+        if value['Action'] == 'SINGLE' || value['Action'] == 'DOUBLE'
+            tasmota.set_power(0, !bool(self.Power1))
+        end
+    end
 
     def rule_power(value, trigger)
         import string
@@ -565,7 +571,9 @@ class Watering
         self.AutofloodInProcess = false
 
         tasmota.add_driver(self)
+        tasmota.cmd('SetOption73 1') # Detach buttons from relays
         tasmota.add_rule("POWER1", / v, t -> self.rule_power(v, t))
+        tasmota.add_rule("BUTTON1", / v, t -> self.rule_button1(v, t))
         tasmota.add_cron("0 */5 19,20,21,22,23,0,1,2,3 * * *", /-> self.auto_flood(), "auto_flood")
 
     end
@@ -574,6 +582,7 @@ class Watering
         import persist
         persist.save()
         tasmota.remove_rule("POWER1")
+        tasmota.remove_rule("BUTTON1")
         tasmota.cmd("Power1 0")
         if self.FinishRule
             tasmota.remove_rule(self.FinishRule)
