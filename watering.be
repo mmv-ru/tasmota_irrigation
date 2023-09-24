@@ -483,6 +483,9 @@ class Watering
             self.LastFloodVol = 0
             self.AutofloodInProcess = true
             self.SoilHPreFlood = self.SoilSensors[0].RawEma
+            self.SoilMaxHymidityConfirmed = false
+            self.SoilMaxHymidity = nil
+            self.SoilMaxHymidityTime = nil
             tasmota.cmd("Power1 1")
         end
     end
