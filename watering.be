@@ -332,6 +332,16 @@ class Watering
     var AutofloodInProcess
 
 
+    def button_pressed(cmd, idx, payload, raw)
+        if !(cmd == '' && idx == 0 && payload == '')
+            print("Watering: button_pressed", type(cmd), cmd, ',', idx, ',', type(payload), payload, ',', raw)
+        end
+    end
+
+    #def set_power_handler(cmd, idx)
+    #    # idx 0 off, 1 on
+    #    var power = tasmota.get_power()
+    #end
 
 
     def rule_power(value, trigger)
