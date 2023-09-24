@@ -403,10 +403,12 @@ class Watering
             if CounterDelta > 0
                 self.LastFloodTime = tasmota.rtc()['local']
                 self.LastFloodVol += CounterDelta
+                tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
                 tasmota.set_timer(40*60*1000, /->self.timer_soil_transition_after_flooded(), "ID_SOILTRANSITION_AFTERFLOOD")
             else
                 self.PauseSoilMaxStat = false
             end
+            tasmota.remove_timer("ID_ENDFASTTELE")
             tasmota.set_timer(60*1000, /->self.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
         else
             print("WARNING: Unexpected watering pump state ", value['State'])
@@ -576,6 +578,7 @@ class Watering
         tasmota.add_rule("POWER1", / v, t -> self.rule_power(v, t))
         tasmota.add_rule("BUTTON1", / v, t -> self.rule_button1(v, t))
         tasmota.add_cron("0 */5 19,20,21,22,23,0,1,2,3 * * *", /-> self.auto_flood(), "auto_flood")
+        tasmota.remove_cron("auto_flood")
 
     end
 
@@ -584,6 +587,9 @@ class Watering
         persist.save()
         tasmota.remove_rule("POWER1")
         tasmota.remove_rule("BUTTON1")
+        tasmota.remove_cron("auto_flood")
+        tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
+        tasmota.remove_timer("ID_ENDFASTTELE")
         tasmota.cmd("Power1 0")
         if self.FinishRule
             tasmota.remove_rule(self.FinishRule)
