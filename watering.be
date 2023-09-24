@@ -428,6 +428,7 @@ class Watering
 
     def timer_soil_transition_after_flooded()
         print("Timer: End soil transition after flooding")
+        print("timer_soil_transition_after_flooded: self: ", self, "SS: ", self.SoilSensors[0])
         self.SoilHPostFlood = self.SoilSensors[0].Hymidity
         # TODO: Add fast water calibration here
         # Fast water calibration: flood more if necessary
@@ -458,6 +459,7 @@ class Watering
     def auto_flood()
         import persist
         print("Autoflood: AutofloodInProcess ", self.AutofloodInProcess)
+        print("Autoflood: Closure test Sensor ", self.SoilSensors[0])
         print("Autoflood: Closure test A1 ", self.SoilSensors[0].Raw)
         print("Autoflood: Closure test A1EMA ", self.SoilSensors[0].RawEma)
         if self.SoilSensors[0].IsDry() && !self.AutofloodInProcess
