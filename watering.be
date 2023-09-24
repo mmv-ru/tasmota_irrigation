@@ -87,14 +87,18 @@ class SoilSensor: AbstractSensor
     def Update(sensors)
         super(self).Update(sensors)
 
-        if self.Raw < 2 self.Status = 'N/C' end
-        #print("Old Sensor" .. self.SensorID[1] .. "RawEma: ", self.RawEma, "Raw", self.Raw)
-        if self.RawEma == nil
-            self.RawEma = self.Raw
+        if self.Raw < 2
+            self.Status = 'N/C'
+            #self.Raw = nil
         else
-            self.RawEma = EMA(self.RawEma, self.EMAN, self.Raw)
+            #print("Old Sensor" .. self.SensorID[1] .. "RawEma: ", self.RawEma, "Raw", self.Raw)
+            if self.RawEma == nil
+                self.RawEma = self.Raw
+            else
+                self.RawEma = EMA(self.RawEma, self.EMAN, self.Raw)
+            end
+            #print("New Sensor" .. self.SensorID[1] .. "RawEma", self.RawEma)
         end
-        #print("New Sensor" .. self.SensorID[1] .. "RawEma", self.RawEma)
     end
 
     def Raw2Hymidity(rawSoil)
