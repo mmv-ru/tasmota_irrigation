@@ -569,6 +569,7 @@ class Watering
         self.AutofloodInProcess = false
 
         tasmota.add_driver(self)
+        tasmota.cmd('PowerOnState 0') # relay off after PowerOn
         tasmota.cmd('SetOption73 1') # Detach buttons from relays
         tasmota.add_rule("POWER1", / v, t -> self.rule_power(v, t))
         tasmota.add_rule("BUTTON1", / v, t -> self.rule_button1(v, t))
