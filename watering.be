@@ -578,7 +578,13 @@ class Watering
         tasmota.add_rule("BUTTON1", / v, t -> self.rule_button1(v, t))
         tasmota.add_cron("0 */5 19,20,21,22,23,0,1,2,3 * * *", /-> self.auto_flood(), "auto_flood")
         tasmota.remove_cron("auto_flood")
+        tasmota.remove_cmd("autoflood")
+        tasmota.add_cmd("autoflood", /-> self.auto_flood())
+    end
 
+    def on_cmd_autoflood(cmd, idx, payload, payload_json)
+        # tasmota.resp_cmnd(json.dump({self.cmd: j}))
+        tasmota.resp_cmnd_done()
     end
 
     def deinit()
@@ -589,6 +595,7 @@ class Watering
         tasmota.remove_cron("auto_flood")
         tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
         tasmota.remove_timer("ID_ENDFASTTELE")
+        tasmota.remove_cmd("autoflood")
         tasmota.cmd("Power1 0")
         if self.FinishRule
             tasmota.remove_rule(self.FinishRule)
