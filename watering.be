@@ -221,7 +221,6 @@ class FlowSensor: AbstractSensor
         var RawDelta
         var CurMillis = tasmota.millis()
         if self._RateMeasuring
-            log("DBG: RateMeasuring " .. value)
             if self.LastMillis != nil
                 var MillisDelta = CurMillis - self.LastMillis
                 RawDelta = self.Raw - self.LastRaw
@@ -238,7 +237,7 @@ class FlowSensor: AbstractSensor
             end
             # Step LastRaw
             self.LastRaw = self.Raw
-            log("DBG: RateMeasuring " .. self.LastRaw .. RawDelta)
+            # log("DBG: RateMeasuring " .. self.LastRaw .. " " .. RawDelta)
         else
             self.LastMillis = nil
         end
@@ -494,6 +493,7 @@ class Watering
             var CurDRaw = self.SoilSensors[0].RawEma - self.SoilSensors[0].RawWet
             var EstimatedFlood = real(self.LastFloodVol)*CurDRaw/LastFloodDRaw
             if EstimatedFlood < 100
+                log("EstimatedFlood: " .. EstimatedFlood)
                 return 0
             else
                 return int(EstimatedFlood)
@@ -532,7 +532,7 @@ class Watering
         print("Init Watering object")
         print("imported", tasmota)
         var tmp = tasmota.read_sensors()
-        print("Sensors raeden from tasmota")
+        print("Sensors readen from tasmota")
         sensors = json.load(tmp)
         #sensors = json.load(tasmota.read_sensors()) # Don`t work on boot stage
         print("Sensors loaded from Json string")
@@ -549,8 +549,8 @@ class Watering
         print("Sensors initialized")
 
         for p: ['SoilHPreFlood', 'SoilHPostFlood', 'PrevSoilMaxHymidity',
-               'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
             introspect.set(self, p, persist.find(p, nil))
+                'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
 
         end
 
