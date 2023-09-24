@@ -451,8 +451,8 @@ class Watering
     def auto_flood()
         import persist
         print("Autoflood: AutofloodInProcess ", self.AutofloodInProcess)
-        print("Autoflood: Closure test A1 " .. self.SoilSensors[0].Raw)
-        print("Autoflood: Closure test A1EMA " .. self.SoilSensors[0].RawEma)
+        print("Autoflood: Closure test A1 ", self.SoilSensors[0].Raw)
+        print("Autoflood: Closure test A1EMA ", self.SoilSensors[0].RawEma)
         if self.SoilSensors[0].IsDry() && !self.AutofloodInProcess
             print("Autoflood: scheduled start")
             if self.estimateflood()
