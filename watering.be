@@ -493,8 +493,8 @@ class Watering
     def estimateflood()
         try
             var LastFloodDRaw = self.SoilHPreFlood - self.SoilMaxHymidity
-            var CurDRaw = self.SoilSensors[0].RawEma - self.SoilSensors[0].RawDry
-            var EstimatedFlood = real(LastFloodDRaw)*CurDRaw/self.LastFloodVol
+            var CurDRaw = self.SoilSensors[0].RawEma - self.SoilSensors[0].RawWet
+            var EstimatedFlood = real(self.LastFloodVol)*CurDRaw/LastFloodDRaw
             if EstimatedFlood < 100
                 return 0
             else
