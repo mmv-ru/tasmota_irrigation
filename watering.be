@@ -558,7 +558,6 @@ class Watering
 
         end
 
-
         self.MaxPumpRun = 40
         var PulseTime
         PulseTime = int(self.pulseencode(self.MaxPumpRun))
