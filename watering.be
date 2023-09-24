@@ -476,7 +476,7 @@ class Watering
             for p: ['PrevSoilMaxHymidity',
                    'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
                 import introspect
-                introspect.set(self, p, persist.find(p, nil))
+                introspect.set(persist, p, introspect.get(self, p, nil))
                 persist.save()
             end
 
