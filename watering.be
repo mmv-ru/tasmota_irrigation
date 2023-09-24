@@ -700,11 +700,13 @@ class Watering
         import json
         import string
         var wtele = {
+                'Soil1Raw': int(self.SoilSensors[0].Raw),
                 'Soil1RawEma': int(self.SoilSensors[0].RawEma),
                 'Soil1Hymidity': self.SoilSensors[0].Hymidity,
                 'Soil2RawEma': int(self.SoilSensors[1].RawEma),
                 'Soil2Hymidity': self.SoilSensors[1].Hymidity,
                 'LastFloodSessionVol': self.LastFloodVol,
+                'LastSoilMaxHymidity':  self.SoilMaxHymidityConfirmed ? self.SoilMaxHymidity : nil,
                 'PrevSoilHPreFlood': self.PrevSoilHPreFlood,
                 'PrevFloodedVol': self.PrevFloodedVol,
                 'PrevSoilHPostFlood': self.PrevSoilHPostFlood,
