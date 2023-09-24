@@ -545,7 +545,7 @@ class Watering
         print("Init sensors")
         self.SoilSensors = [SoilSensor('A1'), SoilSensor('A2')]
         self.SoilSensors[0].RawDry = int(persist.find("TargetDry", "815"))
-        self.SoilSensors[0].RawWet = int(persist.find("TargetWet", "730"))
+        self.SoilSensors[0].RawWet = int(persist.find("TargetWet", "749"))
         self.LastFloodVol = int(persist.find("LastFloodVol", "0"))
         self.FlowSensors = [FlowSensor('C1'), FlowSensor('C2')]
         print("Sensors initialized")
@@ -563,7 +563,7 @@ class Watering
         tasmota.cmd('PulseTime1":{"Set":'.. PulseTime ..',"Remaining":0}')
 
         # When pipes without check valve, backflow - water
-        self.Counter1Backflow = 140
+        self.Counter1Backflow = 133
         self.Counter1FloodDefault = 200
 
         self.Power1 = 0
