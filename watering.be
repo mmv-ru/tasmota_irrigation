@@ -438,7 +438,7 @@ class Watering
         end
     end
 
-    def check_flood()
+    def auto_flood()
         import persist
         print("Autoflood: AutofloodInProcess ", self.AutofloodInProcess)
         print("Autoflood: Closure test A1 " .. self.SoilSensors[0].Raw)
@@ -552,7 +552,7 @@ class Watering
 
         tasmota.add_driver(self)
         tasmota.add_rule("POWER1", / v, t -> self.rule_power(v, t))
-        tasmota.add_cron("0 1 19,20,21,22,23,0,1 * * *", /-> self.check_flood(), "check_flood")
+        tasmota.add_cron("0 */5 19,20,21,22,23,0,1,2,3 * * *", /-> self.auto_flood(), "auto_flood")
 
     end
 
