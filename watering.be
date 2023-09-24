@@ -7,7 +7,11 @@ var TIMERID_SOILTRANSITION_AFTERFLOOD = 2
 def EMA(oldEMA, N, NewValue)
     import math
 #    return (math.floor(oldEMA*(N - 1)*10.0) + NewValue*10.0) / (N*10)
-    return (math.floor(oldEMA*((N - 1.)*100./real(N))) + NewValue*100./N)/100
+#    return (math.floor(oldEMA*((N - 1.)*100./real(N))) + NewValue*100./N)/100 # Систематически занижает среднее на -2,5
+#    return oldEMA*((N - 1.)/real(N)) + NewValue/real(N) # Систематически завышает среднее на +2 +4
+#    return math.floor(oldEMA*((N - 1)/real(N))*100.0)/100.0 + NewValue/real(N) # Систематически завышает среднее на +2 +4
+#    return math.floor(oldEMA*((N - 1)/real(N))*1024.0)/1024.0 + NewValue/real(N) # Систематически завышает среднее на +2 +4
+    return ((math.floor(oldEMA*8192)/8192)*((N - 1)/real(N))) + NewValue/real(N) #
 end
 
 class AbstractSensor
