@@ -1,3 +1,5 @@
 /tasmota*.bin
 /Снимок экрана*
 /Archive
+/.venv-jupyter/**
+.~lock.*
