@@ -14,7 +14,7 @@ class watering_ui_driver
 
     end
 
-    def destroy()
+    def deinit()
         tasmota.remove_driver(self)
     end
 
@@ -74,8 +74,8 @@ watering_ui.wd = ''
 
 import introspect
 if introspect.get(global, "watering_ui_driver") != nil
-    print("Remove old Watering driver")
-    introspect.get(global, "watering_ui_driver").destroy()
+    print("Remove old Watering_ui driver")
+    introspect.get(global, "watering_ui_driver").deinit()
 end
 
 print("Add Watering_ui driver")
