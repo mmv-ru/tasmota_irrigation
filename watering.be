@@ -131,6 +131,8 @@ class SoilSensor: AbstractSensor
             var Scale = 100.0/(self.RawDry-self.RawWet) # (out1-out2)/(in1-in2)
             var Offset = -self.RawWet*(100.0)/(self.RawDry-self.RawWet) # out2-In2*(out1-out2)/(in1-in2)
             return self.Raw*Scale + Offset
+        elif name == 'mV'
+            return self.Raw2mV(self.Raw)
         else
             import undefined
             return undefined
