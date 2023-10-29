@@ -68,8 +68,12 @@ class SoilSensor: AbstractSensor
         # V = D * Vmax / Dmax
         # Tasmota has ADC_ATTEN_DB_11
         # Vmax 2450 mV, Dmax = 4095
+        # In-R1-ADC-R2-Ground
         # external divider 30kOm - 30kOm
-        self.Raw2mVScale = 2 * 2450./4095
+        var R1 = 30000.
+        var R2 = 30000.
+        var D = (R1+R2)/R2
+        self.Raw2mVScale = D * 2450./4095
         super(self).init(Sensor)
     end
 
