@@ -172,15 +172,22 @@ class SoilSensor: AbstractSensor
         msg  = string.format(
             "{s}" .. self.Name .. "{e}"..
             "{s}| auto hreshold{m}%01.2f{e}"..
-            "{s}| auto target{m}%01.2f{e}",
-            self.SensorID[1], self.RawDry, self.RawWet)
+            "{s}| | Hu{m}%01.1f%%{e}"..
+            "{s}| auto target{m}%01.2f{e}"..
+            "{s}| | Hu{m}%01.1f%%{e}",
+            self.SensorID[1],
+            self.RawDry, self.Raw2Hu(self.RawDry),
+            self.RawWet, self.Raw2Hu(self.RawWet)
+            )
         msg = msg .. string.format(
             "{s}| Raw{m}%i{e}" ..
+#            "{s}| Raw EMA(%i){m}%01.4f{e}",
             "{s}| Raw EMA(%i){m}%01.4f{e}",
             self.Raw, self.EMAN, self.RawEma)
         msg = msg .. string.format(
-            "{s}| Hymidity{m}%01.1f%%{e}",
-            self.Hymidity)
+            "{s}| Hymidity u{m}%01.1f%%{e}"..
+            "{s}| | mV{m}%01.1f mV{e}",
+            self.Hu, self.mV)
 
         tasmota.web_send_decimal(msg)
 
