@@ -56,6 +56,7 @@ class SoilSensor: AbstractSensor
     var ScaleMinRAW
     var ScaleMaxRAW
     var Raw2mVScale
+    var Hu_C
 
     def init(Sensor)
         self.SensorID = ['ANALOG', Sensor]
@@ -74,6 +75,8 @@ class SoilSensor: AbstractSensor
         var R2 = 30000.
         var D = (R1+R2)/R2
         self.Raw2mVScale = D * 2450./4095
+        # Hu(Raw) polynmial coef from calibration data
+        self.Hu_C = [0.369266, 0.00150216, -1.60819e-06]
         super(self).init(Sensor)
     end
 
@@ -120,6 +123,10 @@ class SoilSensor: AbstractSensor
         return mV / self.Raw2mVScale
     end
 
+    def Raw2Hu(raw)
+        return (self.Hu_C[0] + self.Hu_C[1]*raw + self.Hu_C[2]*raw*raw)*100
+    end
+
     def member(name)
         if name == 'Hymidity'
             return self.Raw2Hymidity(self.Raw)
@@ -133,6 +140,8 @@ class SoilSensor: AbstractSensor
             return self.Raw*Scale + Offset
         elif name == 'mV'
             return self.Raw2mV(self.Raw)
+        elif name == 'Hu'
+            return self.Raw2Hu(self.Raw)
         else
             import undefined
             return undefined
