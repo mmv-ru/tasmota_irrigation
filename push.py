@@ -2,6 +2,7 @@
 
 import requests
 import time
+import diff_match_patch
 
 tasmota_host = '172.17.252.43'
 filename = 'watering.be'
@@ -48,9 +49,19 @@ class Tasmota:
             print("Uploadd verification Passed")
         else:
             print("Uploadd verification Failed")
-            print("file:\n", data_file.decode("utf-8"), sep=None)
-            print()
-            print("loaded:\n", data_loaded.decode("utf-8"), sep=None)
+            # print("file:\n", data_file.decode("utf-8"), sep=None)
+            # print()
+            # print("loaded:\n", data_loaded.decode("utf-8"), sep=None)
+            # print()
+            dmp = diff_match_patch.diff_match_patch()
+            dmp.Diff_Timeout = 1  # or some other value, default is 1.0 seconds
+            diffs = dmp.diff_main(data_loaded.decode("utf-8"),
+                                  data_file.decode("utf-8"))
+            dmp.diff_cleanupSemantic(diffs)
+            patch = dmp.patch_make(diffs)
+            textpatch = dmp.patch_toText(patch)
+            # htmlSnippet = dmp.diff_prettyHtml(diffs)
+            print("Unidiff:\n", textpatch, sep=None)
             print()
             raise UploadVerificationError("Upload verification Failed!")
 
