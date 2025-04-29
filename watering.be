@@ -61,7 +61,7 @@ class SoilSensor: AbstractSensor
     def init(Sensor)
         self.SensorID = ['ANALOG', Sensor]
         self.Name = 'Soil%sHymidity'
-        self.setScale(577, 1105)
+        self.setScale(842, 1105)
         self.EMAN = 600
         self.RawDry = 800
         self.RawWet = 750
@@ -81,10 +81,13 @@ class SoilSensor: AbstractSensor
     end
 
     def setScale(min, max)
+        # Set linear scale by two points
         self.ScaleMinRAW = min
         self.ScaleMaxRAW = max
-        self.Scale = 100.0/(self.ScaleMinRAW-self.ScaleMaxRAW) # (out1-out2)/(in1-in2)
-        self.Offset = -self.ScaleMaxRAW*(100.0)/(self.ScaleMinRAW-self.ScaleMaxRAW) # out2-In2*(out1-out2)/(in1-in2)
+        var ScaleMinVal = 100.
+        var ScaleMaxVal = 0.
+        self.Scale = (ScaleMinVal-ScaleMaxVal)/(self.ScaleMinRAW-self.ScaleMaxRAW) # (out1-out2)/(in1-in2)
+        self.Offset = ScaleMaxVal - self.ScaleMaxRAW*(ScaleMinVal-ScaleMaxVal)/(self.ScaleMinRAW-self.ScaleMaxRAW) # out2-In2*(out1-out2)/(in1-in2)
         print("Soil sensor scale set.")
     end
 
@@ -129,7 +132,7 @@ class SoilSensor: AbstractSensor
 
     def member(name)
         if name == 'Hymidity'
-            return self.Raw2Hymidity(self.Raw)
+            return self.Raw2Hymidity(self.RawEma)
         elif name == 'Dry'
             return self.Raw2Hymidity(self.RawDry)
         elif name == 'Wet'
@@ -141,7 +144,7 @@ class SoilSensor: AbstractSensor
         elif name == 'mV'
             return self.Raw2mV(self.Raw)
         elif name == 'Hu'
-            return self.Raw2Hu(self.Raw)
+            return self.Raw2Hu(self.RawEma)
         else
             import undefined
             return undefined
@@ -233,6 +236,12 @@ class FlowSensor: AbstractSensor
         if self.Status == 'init'
             self.Status = 'unverified'
         end
+    end
+
+    def Reset()
+      import string
+      tasmota.cmd(string.format('Counter%d 0', self.SensorID[1][1]))
+      self.Raw = 0
     end
 
     def _WaterFlow(sensors)
@@ -346,11 +355,12 @@ class Watering
     var PrevFloodedVol
     var PrevSoilHPostFlood
     var AutofloodInProcess
+    var Counter1ResetPostpone
 
 
     def button_pressed(cmd, idx, payload, raw)
         if !(cmd == '' && idx == 0 && payload == '')
-            print("Watering: button_pressed", type(cmd), cmd, ',', idx, ',', type(payload), payload, ',', raw)
+            # print("Watering: button_pressed", type(cmd), cmd, ',', idx, ',', type(payload), payload, ',', raw)
         end
     end
 
@@ -429,6 +439,7 @@ class Watering
                 tasmota.set_timer(40*60*1000, /->self.timer_soil_transition_after_flooded(), "ID_SOILTRANSITION_AFTERFLOOD")
             else
                 self.PauseSoilMaxStat = false
+                self.AutofloodInProcess = false
             end
             tasmota.remove_timer("ID_ENDFASTTELE")
             tasmota.set_timer(60*1000, /->self.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
@@ -469,7 +480,12 @@ class Watering
     end
 
     def _autoflood_end()
+        print("Autofloood: finishing...")
         self.AutofloodInProcess = false
+        if self.Counter1ResetPostpone
+          self.FlowSensors[0].Reset()
+          self.Counter1ResetPostpone = false
+        end
         self.SoilMaxHymidity = nil
         self.SoilMaxHymidityTime = nil
         self.PrevFloodedVol = self.LastFloodVol
@@ -480,9 +496,9 @@ class Watering
     def auto_flood()
         import persist
         print("Autoflood: AutofloodInProcess ", self.AutofloodInProcess)
-        print("Autoflood: Closure test Sensor ", self.SoilSensors[0])
-        print("Autoflood: Closure test A1 ", self.SoilSensors[0].Raw)
-        print("Autoflood: Closure test A1EMA ", self.SoilSensors[0].RawEma)
+        #print("Autoflood: Closure test Sensor ", self.SoilSensors[0])
+        #print("Autoflood: Closure test A1 ", self.SoilSensors[0].Raw)
+        #print("Autoflood: Closure test A1EMA ", self.SoilSensors[0].RawEma)
         if self.SoilSensors[0].IsDry() && !self.AutofloodInProcess
             print("Autoflood: scheduled start")
             # Save previous session stats
@@ -490,9 +506,9 @@ class Watering
             self.PrevSoilHPostFlood = self.SoilHPostFlood
             self.PrevFloodedVol = self.LastFloodVol
             self.PrevSoilMaxHymidity = self.SoilMaxHymidity
+            import introspect
             for p: ['PrevSoilMaxHymidity',
                    'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
-                import introspect
                 introspect.set(persist, p, introspect.get(self, p, nil))
                 persist.save()
             end
@@ -516,6 +532,8 @@ class Watering
 
     def estimateflood()
         try
+            # при маленькой дозе полива, может оказаться что влажность не уменьшилась
+            # тогда используемая линейная экстраполяция даст отрицательное значение полива!
             var LastFloodDRaw = self.SoilHPreFlood - self.SoilMaxHymidity
             var CurDRaw = self.SoilSensors[0].RawEma - self.SoilSensors[0].RawWet
             var EstimatedFlood = real(self.LastFloodVol)*CurDRaw/LastFloodDRaw
@@ -551,7 +569,11 @@ class Watering
     end
 
     def init()
+        def cb_auto_flood()
+            self.auto_flood()
+        end
         var sensors
+        #var p
         import json
         import math
         import persist
@@ -569,14 +591,17 @@ class Watering
 
         print("Init sensors")
         self.SoilSensors = [SoilSensor('A1'), SoilSensor('A2')]
-        self.SoilSensors[0].RawDry = int(persist.find("TargetDry", "815"))
-        self.SoilSensors[0].RawWet = int(persist.find("TargetWet", "749"))
+        self.SoilSensors[0].RawDry = int(persist.find("TargetDry", "800"))
+        self.SoilSensors[0].RawWet = int(persist.find("TargetWet", "770"))
         self.LastFloodVol = int(persist.find("LastFloodVol", "0"))
         self.FlowSensors = [FlowSensor('C1'), FlowSensor('C2')]
         print("Sensors initialized")
 
-        for p: ['SoilHPreFlood', 'SoilHPostFlood', 'PrevSoilMaxHymidity',
+        for p: ['SoilHPreFlood', 'SoilHPostFlood',
+                'SoilMaxHymidity', 'SoilMaxHymidityTime',
+                'PrevSoilMaxHymidity',
                 'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
+            print('Persist restore - ', p, ': ', persist.find(p, nil))
             introspect.set(self, p, persist.find(p, nil))
         end
 
@@ -585,23 +610,29 @@ class Watering
         PulseTime = int(self.pulseencode(self.MaxPumpRun))
         tasmota.cmd('PulseTime1":{"Set":'.. PulseTime ..',"Remaining":0}')
 
+        self.MaxFlood = 400
+
         # When pipes without check valve, backflow - water
-        self.Counter1Backflow = 133
-        self.Counter1FloodDefault = 200
+        # self.Counter1Backflow = 133
+        self.Counter1Backflow = 0
+        self.Counter1FloodDefault = 100
 
         self.Power1 = 0
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
+        self.Counter1ResetPostpone = false
 
         tasmota.add_driver(self)
         tasmota.cmd('PowerOnState 0') # relay off after PowerOn
         tasmota.cmd('SetOption73 1') # Detach buttons from relays
         tasmota.add_rule("POWER1", / v, t -> self.rule_power(v, t))
         tasmota.add_rule("BUTTON1", / v, t -> self.rule_button1(v, t))
-        tasmota.add_cron("0 */5 19,20,21,22,23,0,1,2,3 * * *", /-> self.auto_flood(), "auto_flood")
         tasmota.remove_cron("auto_flood")
+        tasmota.add_cron("0 1 14,15,16,17,18,19,20,21,22,23,0,1 * * *", /-> self.auto_flood(), "auto_flood")
+        print("Cron auto_flood initialized")
         tasmota.remove_cmd("autoflood")
         tasmota.add_cmd("autoflood", /-> self.auto_flood())
+        print("Command auto_flood initialized")
     end
 
     def on_cmd_autoflood(cmd, idx, payload, payload_json)
@@ -665,6 +696,8 @@ class Watering
 
     def web_add_main_button()
         webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
+        webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_1=1\");'>Reset water counter 1</button>")
+#        webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_2=1\");'>Reset water counter 1</button>")
     end
 
 
@@ -688,6 +721,23 @@ class Watering
           print("FlowSensor Calibration mode" .. self.FlowSensorCalibration)
         end
 
+        if webserver.has_arg("m_reset_water_counter_1")
+          if self.AutofloodInProcess
+            self.Counter1ResetPostpone = true
+          else
+            self.FlowSensors[0].Reset()
+          end
+        end
+
+#        if webserver.has_arg("m_reset_water_counter_2")
+#          # TODO: Autoflood support only 1 channel
+#          if self.AutofloodInProcess
+#            self.Counter1ResetPostpone = true
+#          else
+#            self.FlowSensors[1].Reset()
+#          end
+#        end
+
         if webserver.has_arg("m_toggle_conf") # takes a string as argument name and returns a boolean
             # we can even call another function and use the value as a parameter
             # takes a string or integer(index of arguments) to get the value of the argument
@@ -699,6 +749,11 @@ class Watering
         msg = string.format(
                   "{s}FlowSensor Calibration mode{m}%s{e}",
                   self.FlowSensorCalibration)
+        tasmota.web_send_decimal(msg)
+
+        msg = string.format(
+                  "{s}Flooding in process{m}%s{e}",
+                  self.AutofloodInProcess)
         tasmota.web_send_decimal(msg)
 
         self.SoilSensors[0].web_sensor()
@@ -767,8 +822,43 @@ class Watering
 
 end
 
+class MessageChannel
+    def Send(message)
+        log('Abstract Class Channel not send messages.', 3)
+        return {'Success': False, 'Message': 'Abstract Class Channel not send messages.'}
+    end
+end
 
+class TelegramChannel: MessageChannel
+    var BotAPIToken
+    var ChatID
+    var url_template
 
+    def init(BotAPIToken, ChatID)
+        self.ChatID = ChatID
+        self.BotAPIToken = BotAPIToken
+        self.url_template = "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s"
+    end
+
+    def Send(message)
+        import string
+        log('Abstract Class Channel not send messages.', 3)
+        var url = string.format(self.url_template, self.BotAPIToken, self.ChatID, message)
+        var cl = webclient()
+        cl.begin(url)
+        var result = cl.GET()
+        print(result)
+        var s = cl.get_string()
+        print(s)
+        return {'Success': False, 'Message': 'Abstract Class Channel not send messages.'}
+    end
+end
+
+class Alerter
+    var MessageQ
+    var Channels
+
+end
 
 
 
@@ -786,3 +876,7 @@ end
 print("Add new Watering driver")
 wp1 = Watering()
 print("Watering driver initialized")
+
+tasmota.cmd('ifx {"State":"ON","Host":"172.17.200.197","Port":8086,"Version":2,"Bucket":"e39ac351b59fc1d9","Org":"openhab"}')
+tasmota.cmd("IfxToken ");
+    # tasmota.cmd("BrRestart");
