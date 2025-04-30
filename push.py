@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 
+import logging
 import requests
 import time
 import diff_match_patch
+
+logging.basicConfig(level=logging.ERROR, format="%(message)s")
 
 tasmota_host = '172.17.252.43'
 filename = 'watering.be'
@@ -18,6 +21,11 @@ class Tasmota:
     def __init__(self, address):
         self.tasmota_host = address
         self.session = requests.Session()
+        self.session.mount("http://",
+                           requests.adapters.HTTPAdapter(pool_connections=10,
+                                                         pool_maxsize=1,
+                                                         max_retries=3,
+                                                         pool_block=True))
 
     def __enter__(self):
         return self
@@ -111,8 +119,10 @@ def main():
     with Tasmota(tasmota_host) as t:
         n_log1 = t.getLog()
         t.uploadfile(filename)
+        time.sleep(10)
         t.verifyfile(filename)
         t.berryCommand(f'load("{filename}")')
+        time.sleep(0.1)
         print("Show console log")
         begin_t = time.monotonic()
         n_log = n_log1
