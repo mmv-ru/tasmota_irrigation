@@ -102,7 +102,7 @@ class Tasmota:
                 'lines': log.split("/n")}
 
     def consoleCommand(self, command: str):
-        """Restart Berry VM"""
+        """Tasmota command"""
         print(f"Tasmota command ({command})")
         url_console = 'http://{}/cs'.format(tasmota_host)
         payload = {'c2': '0', 'c1': command}
@@ -118,6 +118,9 @@ class Tasmota:
 def main():
     with Tasmota(tasmota_host) as t:
         n_log1 = t.getLog()
+        # TODO: Upload If files not match (to save controller flash)
+        # TODO: Decompose verify to return boolean
+        # TODO: May be make object for controller files?
         t.uploadfile(filename)
         time.sleep(10)
         t.verifyfile(filename)
