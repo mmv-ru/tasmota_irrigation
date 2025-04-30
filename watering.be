@@ -343,6 +343,7 @@ class Watering
     var Counter1BeforeStart
     var Counter1Backflow
     var Counter1FloodDefault
+    var MaxFlood
     var PlannedFlood
     var FinishRule
     var SoilMaxHymidity
@@ -436,10 +437,14 @@ class Watering
             print("Counter compensated: ", Counter1)
             print("Water flooded ".. CounterDelta)
             if CounterDelta > 0
+                var flood_delay = 2*60*60*1000
                 self.LastFloodTime = tasmota.rtc()['local']
                 self.LastFloodVol += CounterDelta
+                if (self.LastFloodVol > self.MaxFlood/2)
+                   flood_delay = 24*60*60*1000
+                end
                 tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
-                tasmota.set_timer(40*60*1000, /->self.timer_soil_transition_after_flooded(), "ID_SOILTRANSITION_AFTERFLOOD")
+                tasmota.set_timer(flood_delay, /->self.timer_soil_transition_after_flooded(), "ID_SOILTRANSITION_AFTERFLOOD")
             else
                 self.PauseSoilMaxStat = false
                 self.AutofloodInProcess = false
