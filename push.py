@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
+import diff_match_patch
 import logging
 import requests
 import time
-import diff_match_patch
 
 logging.basicConfig(level=logging.ERROR, format="%(message)s")
 
