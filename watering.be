@@ -889,4 +889,4 @@ print("Watering driver initialized")
 
 tasmota.cmd('ifx {"State":"ON","Host":"172.17.200.197","Port":8086,"Version":2,"Bucket":"e39ac351b59fc1d9","Org":"openhab"}')
 tasmota.cmd("IfxToken ");
-    # tasmota.cmd("BrRestart");
+# tasmota.cmd("BrRestart");
