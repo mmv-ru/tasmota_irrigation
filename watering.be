@@ -479,6 +479,8 @@ class Watering
               })
         if self.SoilSensors[0].Raw > (self.SoilSensors[0].RawDry + self.SoilSensors[0].RawWet)/2
             print("Autofloood: Wet lewel not reached. Repeat flooding")
+            # TODO: increment Default
+            self.Counter1FloodDefault = self.Counter1FloodDefault * 1.2
             tasmota.cmd("Power1 1")
         else
             # Flooding session finished?
