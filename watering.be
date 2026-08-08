@@ -600,7 +600,7 @@ class Watering
         print("Init sensors")
         self.SoilSensors = [SoilSensor('A1'), SoilSensor('A2')]
         self.SoilSensors[0].RawDry = int(persist.find("TargetDry", "800"))
-        self.SoilSensors[0].RawWet = int(persist.find("TargetWet", "770"))
+        self.SoilSensors[0].RawWet = int(persist.find("TargetWet", "760"))
         self.LastFloodVol = int(persist.find("LastFloodVol", "0"))
         self.FlowSensors = [FlowSensor('C1'), FlowSensor('C2')]
         print("Sensors initialized")
