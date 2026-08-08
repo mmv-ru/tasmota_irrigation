@@ -613,17 +613,17 @@ class Watering
             introspect.set(self, p, persist.find(p, nil))
         end
 
-        self.MaxPumpRun = 40
+        self.MaxPumpRun = 60
         var PulseTime
         PulseTime = int(self.pulseencode(self.MaxPumpRun))
         tasmota.cmd('PulseTime1":{"Set":'.. PulseTime ..',"Remaining":0}')
 
-        self.MaxFlood = 400
+        self.MaxFlood = 2000
 
         # When pipes without check valve, backflow - water
         # self.Counter1Backflow = 133
         self.Counter1Backflow = 0
-        self.Counter1FloodDefault = 100
+        self.Counter1FloodDefault = 300
 
         self.Power1 = 0
         self.PauseSoilMaxStat = false
