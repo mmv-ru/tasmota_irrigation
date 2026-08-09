@@ -631,6 +631,7 @@ class Watering
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
         self.Counter1ResetPostpone = false
+        self.Counter1BeforeStart = self.FlowSensors[0].Raw
 
         tasmota.add_driver(self)
         tasmota.cmd('PowerOnState 0') # relay off after PowerOn
