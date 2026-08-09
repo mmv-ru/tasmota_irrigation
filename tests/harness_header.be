@@ -108,6 +108,9 @@ tasmota.remove_cmd = def (n)
 end
 tasmota.resp_cmnd_done = def () end
 tasmota.get_power = def (i) return nil end
+tasmota.set_power = def (idx, onoff)
+    SIM_CMD("Power" .. (idx+1) .. " " .. (onoff ? "1" : "0"))
+end
 tasmota.strftime = def (f, t) return "2023-01-01 10:00:00" end
 tasmota.web_send_decimal = def (m)
     SIM['websend'].push(m)
@@ -137,27 +140,11 @@ class webclient
   def get_string() return "" end
 end
 
-# ---------------- persist stub (module pattern) ----------------
-var persist = module('persist_store')
-var PERSIST_DATA = map()
-persist.find = def (key, dflt)
-    if PERSIST_DATA.find(key) == nil
-        return dflt
-    end
-    return PERSIST_DATA[key]
-end
-persist.save = def (force) return true end
-persist.has = def (key) return PERSIST_DATA.find(key) != nil end
-persist.setmember = def (k, v) PERSIST_DATA[k] = v end
-persist.member = def (k)
-    if PERSIST_DATA.find(k) != nil
-        return PERSIST_DATA[k]
-    end
-    import undefined
-    return undefined
-end
-introspect.setmodule("persist", persist)
+# ---------------- persist stub -----------------
+# Module file tests/modules/persist.be provides `import persist` (class instance).
+# It lives as a module so Tasmota-style `import persist` in watering.be resolves.
+# Defined in the module file itself; this header only tracks the boot variable.
 
-# - global stub so boot `introspect.get(global,"wp1")` works
+# ---------------- global stub so boot introspect.get(global,"wp1") works ----------------
 var global = module('global')
 global.wp1 = nil

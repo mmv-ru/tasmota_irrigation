@@ -4,6 +4,8 @@
 Usage:
   python3 tests/run_all.py [berry_path]
 """
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +13,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CASES = sorted((ROOT / "tests" / "cases").glob("*.be"))
 build = ROOT / "tests" / "build.py"
+
+def find_berry() -> Path:
+    """Explicit argv > $BERRY_BIN > PATH (setup_berry.sh installs to ~/.local/bin)."""
+    if len(sys.argv) > 1:
+        return Path(sys.argv[1])
+    env = Path(os.environ.get("BERRY_BIN", ""))
+    if str(env) != "." and env.name:
+        return env
+    found = shutil.which("berry")
+    if found:
+        return Path(found)
+    installed = Path.home() / ".local" / "bin" / "berry"
+    if installed.exists():
+        return installed
+    legacy = Path("/tmp/opencode/berry/build/berry")
+    if legacy.exists():
+        return legacy
+    sys.exit("berry VM not found. Deploy it first: bash tests/setup_berry.sh")
 
 def run_case(case: Path, berry: Path) -> tuple[int, str, int]:
     r = subprocess.run(
@@ -24,7 +44,7 @@ def run_case(case: Path, berry: Path) -> tuple[int, str, int]:
     return r.returncode, out, passes, fails, crashed
 
 if __name__ == "__main__":
-    berry = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/opencode/berry/berry")
+    berry = find_berry()
     total_pass = total_fail = 0
     for case in CASES:
         rc, out, p, f, crashed = run_case(case, berry)

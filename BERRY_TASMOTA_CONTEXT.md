@@ -32,8 +32,18 @@
 | `tasmota.resp_cmnd_str(msg)` | Ответ произвольной строкой |
 | `tasmota.resp_cmnd(json_str)` | Ответ, переопределяющий весь ответ команды. Принимает **строку** с валидным JSON |
 | `mqtt.publish(topic, payload, retain)` | Публикация в MQTT (через `import mqtt`). `retain`: boolean; `tasmota.publish()` устарел |
-| `persist` (`import persist`) | Персистентность в `_persist.json`: `persist.key = val`, `persist.save()`, `persist.has(key)`, `persist.find(key)`, `persist.remove(key)`, `persist.zero()` (не `save_data`/`load_data`) |
+| `persist` (`import persist`) | Персистентность в `_persist.json` (один общий файл для всех скриптов). API: `persist.key = val`, `persist.save()`, `persist.dirty()`(пометить как изменённый), `persist.has(key)`, `persist.find(key, dflt)`, `persist.member(key)`, `persist.remove(key)`, `persist.zero()`. **НЕ** `save_data`/`load_data`. Подробности и ловушки см. секцию below |
 | `tasmota.gc()` | Принудительная сборка мусора. Возвращает `int` (выделено байт); только для отладки |
+
+### `persist` module — ЛОВУШКИ (КЛЮЧЕВЫЕ ФАКТЫ)
+1. **ПОЧТИ СИНГЛТОН, НО НЕ ВСЕГДА**: `import persist` в пределах одного скрипт-файла кэшируется → один экземпляр. **Разные скрипт-файлы (autoexec.be, watering.be, watering_ui.be) получают отдельные экземпляры** (внутри `persist.be` `init` возвращает новый `Persist()`). Все экземпляры читают/пишут один и тот же `_persist.json`, но синхронизации между ними НЕТ.
+2. **`save()` перезаписывает файл ЦЕЛИКОМ** из памяти своего экземпляра. Данные, которых нет в этом экземпляре (например, записанные другим скриптом или вручную в файл), **будут затёрты**.
+3. **Ручное редактирование `_persist.json` «на лету» НЕ надёжно**: работает только если скрипт перезагружен ПОСЛЕ правки и больше не вызывал `save()` из экземпляра, не знающего этих ключей.
+4. **`save()` — запись во Flash, wear-out**: не вызывать часто (не в циклах, не каждый тик `every_second`). Сначала несколько `introspect.set(persist, k, v)` / `persist.key = v`, затем ОДИН `persist.save()`. В реальном `persist.be` `save()` пишет только если `_dirty` (после `setmember`) или передан `force_save=true` / вызван `persist.dirty()`.
+5. **Рекомендация**: держать ОДИН `import persist` на верхнем уровне скрипта и использовать его во всех функциях (не импортировать повторно внутри функций).
+6. **Калибровка Dry/Wet (проект irrigation)**: `SoilSensor.setmember('Dry'/'Wet')` (watering.be) теперь пишет `TargetDry`/`TargetWet` в persist и вызывает `save()`. В `init()` эти ключи читаются как **RAW-значения** (`int(persist.find("TargetDry","800"))`), а `setmember` принимает **процент влажности** и конвертирует через `Hymidity2Raw()`. Т.е. в файле хранится RAW, в setter передаётся %.
+7. **`auto_flood`**: партия prev-статов (`PrevSoil*`, `PrevFloodedVol`) пишется одним `persist.save()` ПОСЛЕ цикла `for`, а не внутри него (иначе 4 записи во Flash за раз).
+8. **Для тестов (stub persist)**: persist обязан быть **классом с виртуальными `member`/`setmember`** (`class Persist ... end; var persist = Persist()`), а не module-instance. Только так `introspect.set(persist, k, v)` реально попадает в внутренний map (module-instance не даёт virtual setters — `introspect.set` молча не пишет).
 
 ### `webserver` object (Web UI)
 | Метод | Описание |
@@ -73,3 +83,23 @@ def my_cmd(cmd, idx, payload, json_payload)
 end
 
 tasmota.add_cmd('SetMyRelay', my_cmd)
+```
+
+### 🐛 Berry GOTCHAS (обнаружены на практике)
+1. `true`/`false` — **строчными буквами** (не `True`/`False`).
+2. У `map` НЕТ `.has()` — проверять через `.find(k) != nil` (у list есть `.has()`).
+3. `introspect.set(obj, k, v)` вызывает виртуальный `setmember` только у **class-instance**; module-instance — молча игнорирует (пишет/не пишет в память незаметно).
+4. `string.find()` возвращает **индекс или -1** (нет `.has()`/`.contains()`); `string.split()` есть; `string.len`/`string.mid` отсутствуют — длина строки через `size(s)`, преобразование в строку через `str(x)` (не `string(x)` — у module `string` нет конструктора).
+5. `list.push(...)` — добавление; `size(list)` — длина.
+6. `try ... except .. as e, m ... end` — правильная защищенная конструкция. Синтаксис: **`..` (две точки)** ставится между `except` и `as`, т.е. `except .. as e` (перехват без переменной — краткая форма) или `except .. as e, m` (e — текст, m — стек-трейс). Без `..` нельзя писать `except e` — это `syntax_error` (`'e' undeclared`).
+7. **ВАЖНО (Berry 1.1.0):** голый `except` (без `.. as var`) — НЕ гасит исключение. Тело `except` выполняется и print/log пишутся, но исключение всё равно пробрасывается выше: печатается `stack traceback`, `rc≠0`, дальнейший код не исполняется. Для реальной защиты используйте **только `except .. as e`** (или `.. as e, m`).
+8. **Сборка для тестов — stock Berry v1.1.0** (не Tasmota-патч). Отличия, критичные для кода: (a) `introspect.setmodule` отсутствует — persist-стаб это файл-модуль `tests/modules/persist.be` (class-instance); (b) `string.format('%d', 'строка')` даёт **пусто**, а не число — для команды счётчика обязателен `%s` (`Reset()`, watering.be:253).
+
+---
+
+## 📐 SoilSensor & EMA (проект irrigation) — ТЕКУЩЕЕ СОСТОЯНИЕ
+- **Все актуальные расчёты идут в RAW отсчётах ADC** (сырые `Raw`/`RawEma`; пороги `RawDry`/`RawWet`). Калибровки в % (`Hymidity`) и мВ (`mV`/`Hu`) — **недоделаны, не трогать**.
+- **Пороги**: `RawDry=800`, `RawWet=750`; линейная шкала по двум точкам `setScale(842, 1105)`.
+- **EMA** (`EMAN=600`): `k=2/(N+1)`, `RawEma_new = RawEma_old*(1-k) + Raw*k`; инициализация `RawEma = Raw` при первом тике. Функция `EMA()` в начале watering.be.
+- **Наблюдаемый артефакт (приемлемый)**: в InfluxDB кривая EMA огибает кривую RAW СВЕРХУ со смещением +1..+2. Возможные причины: округления, дискретность отчётов (раз в 5 мин попадает на заниженное значение), помехи питания. **Пользователя смещение устраивает — не оптимизировать, не «чинить».**
+- ADC: `Raw2mVScale` из делителя 30k/30k (≈1.197 mV/source), полином `Hu_C` — недоделка.
