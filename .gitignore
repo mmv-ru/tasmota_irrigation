@@ -3,3 +3,5 @@
 /Archive
 /.venv-jupyter/**
 .~lock.*
+
+tests/out/
