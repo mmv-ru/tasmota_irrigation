@@ -827,49 +827,6 @@ class Watering
 
 end
 
-class MessageChannel
-    def Send(message)
-        log('Abstract Class Channel not send messages.', 3)
-        return {'Success': False, 'Message': 'Abstract Class Channel not send messages.'}
-    end
-end
-
-class TelegramChannel: MessageChannel
-    var BotAPIToken
-    var ChatID
-    var url_template
-
-    def init(BotAPIToken, ChatID)
-        self.ChatID = ChatID
-        self.BotAPIToken = BotAPIToken
-        self.url_template = "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s"
-    end
-
-    def Send(message)
-        import string
-        log('Abstract Class Channel not send messages.', 3)
-        var url = string.format(self.url_template, self.BotAPIToken, self.ChatID, message)
-        var cl = webclient()
-        cl.begin(url)
-        var result = cl.GET()
-        print(result)
-        var s = cl.get_string()
-        print(s)
-        return {'Success': False, 'Message': 'Abstract Class Channel not send messages.'}
-    end
-end
-
-class Alerter
-    var MessageQ
-    var Channels
-
-end
-
-
-
-
-
-
 print("Check for old watering object")
 import introspect
 #print(introspect.get(global, "wp1"))
