@@ -47,6 +47,8 @@ var SIM = {
     'crons': map(),
     'drivers': map(),
     'cmnds': map(),
+    'websend': list(),
+    'append': list(),
 }
 SIM['sensors'] = {'ANALOG': {'A1': 900, 'A2': 900}, 'COUNTER': {'C1': 0, 'C2': 0}}
 
@@ -107,8 +109,12 @@ end
 tasmota.resp_cmnd_done = def () end
 tasmota.get_power = def (i) return nil end
 tasmota.strftime = def (f, t) return "2023-01-01 10:00:00" end
-tasmota.web_send_decimal = def (m) end
-tasmota.response_append = def (m) end
+tasmota.web_send_decimal = def (m)
+    SIM['websend'].push(m)
+end
+tasmota.response_append = def (m)
+    SIM['append'].push(m)
+end
 tasmota.add_fast_loop = def (f) end
 
 def cmds_include(pat)
