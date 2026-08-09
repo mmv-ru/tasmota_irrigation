@@ -24,28 +24,17 @@ assert_eq(wp1.pulseencode(60), 160, "60 s -> 160")
 assert_eq(wp1.pulseencode(360), 460, "360 s -> 460 (docs example: 6 min)")
 assert_eq(wp1.pulseencode(64800), 64900, "64800 s -> 64900 (valid max)")
 
-section("pulse_encode_out_of_bounds")
+section("pulse_encode_out_of_bounds_clamped")
 
-var raised = false
-try
-    wp1.pulseencode(-1)
-except .. as e, m
-    raised = true
-end
-assert_true(raised, "negative time raises")
+# robust behavior: out-of-range clamps to limits, prints error to console
+assert_eq(wp1.pulseencode(-5), 0, "negative clamps to 0")
+assert_eq(wp1.pulseencode(70000), 64900, "too large clamps to max value 64900")
 
-raised = false
-try
-    wp1.pulseencode(70000)
-except .. as e, m
-    raised = true
-end
-assert_true(raised, "too large time raises")
+section("pulse_encode_near_max")
 
-section("pulse_encode_boundary_bug")
-
-# NB: Tasmota max is 64900; code accepts time<=64900 -> emits 65000 which is
-# OUT OF RANGE for the device. Documenting current (buggy) behavior.
-assert_eq(wp1.pulseencode(64900), 65000, "64900 s -> 65000 (out of Tasmota range, documented)")
+# time = 64900 exceeds max representable time (64800) -> clamps, but the
+# resulting value 64900 stays valid (regression check for the old 65000 bug)
+assert_eq(wp1.pulseencode(64800), 64900, "64800 s -> 64900 (exact max)")
+assert_eq(wp1.pulseencode(64900), 64900, "64900 s clamps to 64800 -> 64900 (was 65000)")
 
 # ---------------- finished ----------------

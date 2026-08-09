@@ -561,16 +561,21 @@ class Watering
 
     def pulseencode(time)
         #- https://tasmota.github.io/docs/Commands/#pulsetime -#
+        if time < 0
+            print("pulseencode: MaxPumpRun ".. time .." out of bounds, clamped to 0")
+            time = 0
+        elif time > 64800
+            print("pulseencode: MaxPumpRun ".. time .." out of bounds, clamped to 64800")
+            time = 64800
+        end
         if 0 <= time && time <= 11.1
            return int(time * 10)
         elif 11.1 < time && time <= 11.5
            return 111
         elif 11.5 < time && time < 12
            return 112
-        elif 12 <= time && time <= 64900
-           return int(time + 100)
         else
-           raise 'value_outofbound', 'ERROR: MaxPumpRun '.. time ..' out of bounds'
+           return int(time + 100)
         end
     end
 
