@@ -641,13 +641,8 @@ class Watering
         tasmota.add_cron("0 1 14,15,16,17,18,19,20,21,22,23,0,1 * * *", /-> self.auto_flood(), "auto_flood")
         print("Cron auto_flood initialized")
         tasmota.remove_cmd("autoflood")
-        tasmota.add_cmd("autoflood", /-> self.auto_flood())
+        tasmota.add_cmd("autoflood", def () self.auto_flood() tasmota.resp_cmnd_done() end)
         print("Command auto_flood initialized")
-    end
-
-    def on_cmd_autoflood(cmd, idx, payload, payload_json)
-        # tasmota.resp_cmnd(json.dump({self.cmd: j}))
-        tasmota.resp_cmnd_done()
     end
 
     def deinit()
