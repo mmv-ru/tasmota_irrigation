@@ -6,7 +6,7 @@
 ---
 
 ## ⛔ STRICT RULES (НЕ ИГНОРИРОВАТЬ)
-1. **НЕТ внешних библиотек**: `import` разрешен только для встроенных модулей Tasmota: `string`, `json`, `math`, `path`, `persist`, `mqtt`, `gpio`, `webserver`, `sys` и др. Никаких `requests`, `time`, `os` и т.д.
+1. **НЕТ внешних библиотек**: `import` разрешен только для встроенных модулей Tasmota: `string`, `json`, `math`, `path`, `persist`, `mqtt`, `gpio`, `webserver`, `sys`, `introspect`, `strict`, `undefined` и др. Никаких `requests`, `time`, `os` и т.д.
 2. **НЕТ async/await или потоков**: Только callback-стиль и таймеры.
 3. **НЕ блокируйте главный цикл**: `tasmota.delay()` блокирует весь Tasmota. Для задержек используйте `tasmota.set_timer()`.
 4. **Ограничение памяти**: ~64 КБ на скрипт. Избегайте больших строк, вложенных структур и бесконечных массивов.
