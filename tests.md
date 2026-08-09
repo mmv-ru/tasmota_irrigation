@@ -5,19 +5,46 @@
 ## Как запустить
 
 ```sh
-python3 tests/run_all.py                    # все тесты, berry из /tmp/opencode/berry/berry
-python3 tests/run_all.py /path/to/berry     # указать бинарник berry
+bash tests/setup_berry.sh                 # развернуть Berry VM с зафиксированной версией (один раз)
+python3 tests/run_all.py                  # все тесты (бинарь ищется в PATH, ~/.local/bin, $BERRY_BIN)
+python3 tests/run_all.py /path/to/berry   # указать бинарник berry явно
 python3 tests/build.py tests/cases/10_rule_power_on.be  # один тест
 ```
 
 Требуется собранный бинарник Berry (см. ниже). Никаких зависимостей Python — только файлы в `tests/`.
+
+## Развёртывание (процедура с зафиксированными версиями)
+
+Бинарь Berry **не живёт в `/tmp`** (теряется при каждом ребуте) и **не кэшируется** где-то ещё. Среда разворачивается скриптом `tests/setup_berry.sh`, который сам клонирует и собирает **пиннённую версию**:
+
+| Зависимость | Версия | Где зафиксировано |
+|-------------|--------|-------------------|
+| Berry VM | `v1.1.0` (тег, коммит `b5ede66`) | `tests/setup_berry.sh` (`BERRY_REF`) |
+| Сборка | Makefile репо + `gcc` + `libreadline` (cmake НЕ нужен для v1.1.0) | `tests/setup_berry.sh` |
+| Python | `>= 3.10` | `tests/build.py`, `tests/run_all.py` |
+
+```
+bash tests/setup_berry.sh
+# -> исходники:  ~/.local/src/berry
+# -> бинарь:     ~/.local/bin/berry
+```
+
+Тестеры (`run_all.py`/`build.py`) ищут бинарь в порядке: **аргумент командной строки > `$BERRY_BIN` > `PATH` > `~/.local/bin/berry`**. Настрой `PATH` (например `export PATH="$HOME/.local/bin:$PATH"` в `~/.bashrc`).
+
+### Важно о stock Berry vs Tasmota-патч
+
+Это **stock Berry 1.1.0**, а не Tasmota-сборка. Реальные отличия, зафиксированные тестами:
+
+- `introspect.setmodule()` в stock **отсутствует**; persist подменяется файлом-модулем `tests/modules/persist.be` (класс-инстанс, как реальный persist).
+- `string.format('%d', '1')` (строка) в stock даёт **пусто**, в Tasmota-патче — `'1'`. Поэтому `FlowSensor.Reset()` использует `%s`, а не `%d` (watering.be:253).
+- `string.format('%i'/…` поведение идентично Tasmota по остальным тестам.
 
 ## Структура
 
 | Путь | Что это |
 |------|---------|
 | `tests/harness_header.be` | Преамбула: фреймворк ассертов + стабы Tasmota. Вклеивается в начало каждого теста |
-| `tests/modules/*.be` | Модули-бесплатно имитируемые (`webserver`, `strict`, `undefined`, `webclient`) — их видит `import` |
+| `tests/modules/*.be` | Модули-стабы (`webserver`, `strict`, `undefined`, `webclient`, `persist`) — их видит `import` |
 | `tests/cases/NN_*.be` | Тест-кейсы |
 | `tests/build.py` | Склейка: `header + watering.be + case` → `tests/out/combined.be`, запуск berry |
 | `tests/run_all.py` | Прогон всех кейсов и сводка |
@@ -118,15 +145,15 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `17_pulseencode` | Кодировка MaxPumpRun в PulseTime по докам; clamp вместо raise для вне-диапазона |
 | `18_json_append` | Телеметрический JSON: поля, тернарий max-confirmed/nil |
 | `19_web_sensor` | Веб-строки: базовые ряды в сенсорех, ряд max-влажности |
+| `20_persist_target` | Калибровка Dry/Wet через setmember пишет TargetDry/Wet в persist (по одному save); init восстанавливает raw-значения |
+| `21_flow_sensor` | FlowSensor: scale/Raw2Flow, измерение расхода (RawRate), сброс, member/setmember RateMeasuring, Rate=nil-ветка |
+| `22_session_end` | Завершение сессии: rule_flooded, _autoflood_end, timer_endfasttele, button_pressed, rule_button1 |
+| `23_web_deinit` | web_add_main/config_button (HTML), deinit: снятие правил/cron/cmd, off насоса, persist.save |
+| `24_soil_sensor` | SoilSensor: init-поля из persist, EMA (сходимость/прилипание при малых Raw), статус N/C, Dry/Wet-пороги |
+| `25_web_guard` | web_sensor не обрезает вывод при падении Soil-блока (тип_error от nil): следующий soil, flow и max-столбцы живы |
+| `26_persist_reboot` | persist переживает BrRestart (deinit + Watering()): калибровка Dry/Wet и Prev*-статистика восстановлены; LastFloodVol дефолт 0 |
 
 ## Полезное
 
 - Корень дерева: `watering.be` — источник правды; тесты не дублируют логику, а фиксируют её.
 - В `github.com/mmv-ru/tasmota_irrigation` ветка `feature/ai-irrigation-dev`.
-- Собрать Berry 1.1.0:
-
-```sh
-git clone https://github.com/berry-lang/berry.git /tmp/opencode/berry
-cd /tmp/opencode/berry && cmake -B build && make -C build
-# бинарник: /tmp/opencode/berry/build/berry
-```

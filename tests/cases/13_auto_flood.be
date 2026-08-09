@@ -32,6 +32,17 @@ wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
 wp1.auto_flood()
 assert_true(cmds_include("Power1 1"), "no start while wet")
 
+section("auto_flood_saves_prev_once")
+
+# dry soil again so a new session can start and persist prev-stats
+SIM['sensors']['ANALOG']['A1'] = 900
+wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
+persist.saves = 0
+wp1.auto_flood()
+assert_eq(persist.saves, 1, "single persist.save for prev-stats batch")
+var have = persist.has('PrevFloodedVol')
+assert_true(have, "PrevFloodedVol written to persist")
+
 section("auto_flood_estimate")
 
 # with a completed session state, estimateflood produced a planned volume

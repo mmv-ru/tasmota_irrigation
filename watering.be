@@ -1,5 +1,6 @@
 import webserver
 import strict
+import persist
 
 def EMA(oldEMA, N, NewValue)
     import math
@@ -157,8 +158,14 @@ class SoilSensor: AbstractSensor
     def setmember(name, value)
         if name == 'Dry'
             self.RawDry = self.Hymidity2Raw(value)
+            import introspect
+            introspect.set(persist, 'TargetDry', self.RawDry)
+            persist.save()
         elif name == 'Wet'
             self.RawWet = self.Hymidity2Raw(value)
+            import introspect
+            introspect.set(persist, 'TargetWet', self.RawWet)
+            persist.save()
         else
             raise 'attribute_error', "the 'SoilSensor' object has no attribute '"..name.."'"
         end
@@ -243,7 +250,7 @@ class FlowSensor: AbstractSensor
 
     def Reset()
       import string
-      tasmota.cmd(string.format('Counter%d 0', self.SensorID[1][1]))
+      tasmota.cmd(string.format('Counter%s 0', self.SensorID[1][1]))
       self.Raw = 0
     end
 
@@ -412,7 +419,7 @@ class Watering
         elif value['State'] == 0
             try
                 self.PumpRunMillis = tasmota.millis() - self.PumpStartMillis
-            except
+            except .. as e
                 log("Pump stop without run.", 1)
             end
             print("Water pump OFF")
@@ -504,7 +511,6 @@ class Watering
     end
 
     def auto_flood()
-        import persist
         print("Autoflood: AutofloodInProcess ", self.AutofloodInProcess)
         #print("Autoflood: Closure test Sensor ", self.SoilSensors[0])
         #print("Autoflood: Closure test A1 ", self.SoilSensors[0].Raw)
@@ -520,8 +526,8 @@ class Watering
             for p: ['PrevSoilMaxHymidity',
                    'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
                 introspect.set(persist, p, introspect.get(self, p, nil))
-                persist.save()
             end
+            persist.save()
 
             if self.estimateflood()
                self.PlannedFlood = self.estimateflood()
@@ -591,7 +597,6 @@ class Watering
         #var p
         import json
         import math
-        import persist
         import introspect
         print("Init Watering object")
         print("imported", tasmota)
@@ -652,7 +657,6 @@ class Watering
     end
 
     def deinit()
-        import persist
         persist.save()
         tasmota.remove_rule("POWER1")
         tasmota.remove_rule("BUTTON1")
@@ -695,7 +699,6 @@ class Watering
         if self.SoilMaxHymidity &&  !self.SoilMaxHymidityConfirmed && self.SoilSensors[0].RawEma > self.SoilMaxHymidity + 5
             print("SoilMaxHymidityConfirmed")
             self.SoilMaxHymidityConfirmed = true
-            import persist
             import introspect
             introspect.set(persist, 'SoilMaxHymidity', self.SoilMaxHymidity)
             introspect.set(persist, 'SoilMaxHymidityTime', self.SoilMaxHymidityTime)
@@ -725,77 +728,106 @@ class Watering
 
     def web_sensor()
     #- As we can add only one sensor method we will have to combine them besides all other sensor readings in one method -#
+    #- each section is guarded: a crash in one must not truncate the rest -#
         var msg
 
-        if webserver.has_arg("m_toggle_flowcalibration")
-          self.FlowSensorCalibration = ! self.FlowSensorCalibration
-          print("FlowSensor Calibration mode" .. self.FlowSensorCalibration)
+        try
+            if webserver.has_arg("m_toggle_flowcalibration")
+              self.FlowSensorCalibration = ! self.FlowSensorCalibration
+              print("FlowSensor Calibration mode" .. self.FlowSensorCalibration)
+            end
+        except .. as e
+            print("web_sensor: flowcal toggle failed " .. e)
         end
 
-        if webserver.has_arg("m_reset_water_counter_1")
-          if self.AutofloodInProcess
-            self.Counter1ResetPostpone = true
-          else
-            self.FlowSensors[0].Reset()
-          end
+        try
+            if webserver.has_arg("m_reset_water_counter_1")
+              if self.AutofloodInProcess
+                self.Counter1ResetPostpone = true
+              else
+                self.FlowSensors[0].Reset()
+              end
+            end
+        except .. as e
+            print("web_sensor: reset counter failed " .. e)
         end
 
-#        if webserver.has_arg("m_reset_water_counter_2")
-#          # TODO: Autoflood support only 1 channel
-#          if self.AutofloodInProcess
-#            self.Counter1ResetPostpone = true
-#          else
-#            self.FlowSensors[1].Reset()
-#          end
-#        end
-
-        if webserver.has_arg("m_toggle_conf") # takes a string as argument name and returns a boolean
-            # we can even call another function and use the value as a parameter
-            # takes a string or integer(index of arguments) to get the value of the argument
-            print("Conf button pressed")
-            #self.Conf_Toggle = int(webserver.arg("m_toggle_conf"))
+        try
+            if webserver.has_arg("m_toggle_conf") # takes a string as argument name and returns a boolean
+                # we can even call another function and use the value as a parameter
+                # takes a string or integer(index of arguments) to get the value of the argument
+                print("Conf button pressed")
+                #self.Conf_Toggle = int(webserver.arg("m_toggle_conf"))
+            end
+        except .. as e
+            print("web_sensor: conf toggle failed " .. e)
         end
 
         import string
-        msg = string.format(
-                  "{s}FlowSensor Calibration mode{m}%s{e}",
-                  self.FlowSensorCalibration)
-        tasmota.web_send_decimal(msg)
+        try
+            msg = string.format(
+                      "{s}FlowSensor Calibration mode{m}%s{e}",
+                      self.FlowSensorCalibration)
+            tasmota.web_send_decimal(msg)
+        except .. as e
+            print("web_sensor: calibration row failed " .. e)
+        end
 
-        msg = string.format(
-                  "{s}Flooding in process{m}%s{e}",
-                  self.AutofloodInProcess)
-        tasmota.web_send_decimal(msg)
+        try
+            msg = string.format(
+                      "{s}Flooding in process{m}%s{e}",
+                      self.AutofloodInProcess)
+            tasmota.web_send_decimal(msg)
+        except .. as e
+            print("web_sensor: flooding row failed " .. e)
+        end
 
-        self.SoilSensors[0].web_sensor()
-        #tasmota.web_send_decimal(msg)
-        self.SoilSensors[1].web_sensor()
+        try
+            self.SoilSensors[0].web_sensor()
+        except .. as e
+            print("web_sensor: soil1 row failed " .. e)
+        end
+
+        try
+            self.SoilSensors[1].web_sensor()
+        except .. as e
+            print("web_sensor: soil2 row failed " .. e)
+        end
 
         if self.SoilMaxHymidity != nil
-            msg = string.format(
-                    "{s}SoilHymidity1 max{m}%i{e}",
-                    self.SoilMaxHymidity)
-            if self.SoilMaxHymidityConfirmed
-                msg += string.format(
-                        "{s}SoilHymidity1 max time{m}%s{e}",
-                        tasmota.strftime("%d %B %H:%M", self.SoilMaxHymidityTime))
+            try
+                msg = string.format(
+                        "{s}SoilHymidity1 max{m}%i{e}",
+                        self.SoilMaxHymidity)
+                if self.SoilMaxHymidityConfirmed
+                    msg += string.format(
+                            "{s}SoilHymidity1 max time{m}%s{e}",
+                            tasmota.strftime("%d %B %H:%M", self.SoilMaxHymidityTime))
+                end
+                tasmota.web_send_decimal(msg)
+            except .. as e
+                print("web_sensor: max humidity row failed " .. e)
             end
-            tasmota.web_send_decimal(msg)
         end
 
         if self.LastFloodTime != nil
-            #print("Web S: LastFlood")
-            #print("Web S: LastFlood ".. self.LastFloodVol)
-            #print("Web S: LastFloodTime ".. self.LastFloodTime)
-            msg = string.format(
-                      "{s}Last flood time{m}%s{e}"..
-                      "{s}Last flood{m}%01.1f ml{e}",
-                      tasmota.strftime("%d %B %H:%M", self.LastFloodTime),
-                      self.FlowSensors[0].Raw2Flow(self.LastFloodVol))
-            tasmota.web_send_decimal(msg)
+            try
+                msg = string.format(
+                          "{s}Last flood time{m}%s{e}"..
+                          "{s}Last flood{m}%01.1f ml{e}",
+                          tasmota.strftime("%d %B %H:%M", self.LastFloodTime),
+                          self.FlowSensors[0].Raw2Flow(self.LastFloodVol))
+                tasmota.web_send_decimal(msg)
+            except .. as e
+                print("web_sensor: last flood row failed " .. e)
+            end
         end
 
-        self.FlowSensors[0].web_sensor()
+        try
+            self.FlowSensors[0].web_sensor()
+        except .. as e
+            print("web_sensor: flow1 row failed " .. e)
+        end
 
         #print("web_sensor: processed")
 
