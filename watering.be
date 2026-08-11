@@ -788,9 +788,10 @@ class Watering
         webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
         webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_1=1\");'>Reset water counter 1</button>")
         webserver.content_send(
-            "<p></p>Soil Dry(Raw) <input type='text' id='soil_dry' name='m_soildry' value='" .. str(self.SoilSensors[0].RawDry) .. "'> "
-            .. "Soil Wet(Raw) <input type='text' id='soil_wet' name='m_soilwet' value='" .. str(self.SoilSensors[0].RawWet) .. "'> "
-            .. "<button onclick='la(\"&m_soildry=\"+eb(\"soil_dry\").value+\"&m_soilwet=\"+eb(\"soil_wet\").value);'>Set soil thresholds</button>")
+            "<p></p><div style='display:flex;flex-wrap:wrap;gap:4px;align-items:center'>"
+            .. "Soil Dry(Raw) <input type='text' id='soil_dry' name='m_soildry' style='width:5em;padding:2px' value='" .. str(self.SoilSensors[0].RawDry) .. "'> "
+            .. "Soil Wet(Raw) <input type='text' id='soil_wet' name='m_soilwet' style='width:5em;padding:2px' value='" .. str(self.SoilSensors[0].RawWet) .. "'> "
+            .. "<button style='width:auto;padding:2px 8px' onclick='la(\"&m_soildry=\"+eb(\"soil_dry\").value+\"&m_soilwet=\"+eb(\"soil_wet\").value);'>Set soil thresholds</button></div>")
 #        webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_2=1\");'>Reset water counter 1</button>")
     end
 
