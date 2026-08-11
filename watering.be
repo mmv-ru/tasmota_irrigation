@@ -588,6 +588,12 @@ class Watering
                    'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
                 introspect.set(persist, p, introspect.get(self, p, nil))
             end
+            # Persist the last finished session's estimate inputs too, so that
+            # estimateflood() still works after a reboot (otherwise SoilHPreFlood /
+            # LastFloodVol come back nil -> estimate returns nil -> fallback).
+            introspect.set(persist, 'SoilHPreFlood', self.SoilHPreFlood)
+            introspect.set(persist, 'LastFloodVol', self.LastFloodVol)
+            introspect.set(persist, 'SoilMaxHymidity', self.SoilMaxHymidity)
             persist.save()
 
             if self.estimateflood()
