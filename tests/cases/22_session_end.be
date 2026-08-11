@@ -39,7 +39,7 @@ section("timer_endfasttele_restores_period")
 
 SIM['cmds'] = list()
 wp1.timer_endfasttele_after_flooded()
-assert_true(cmds_include("TelePeriod 1"), "fast tele period restored to 1")
+assert_true(cmds_include("TelePeriod 300"), "fast tele period restored to Tasmota default 300")
 
 section("button_pressed_is_noop")
 

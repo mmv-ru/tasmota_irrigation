@@ -309,10 +309,10 @@ class FlowSensor: AbstractSensor
                 var MillisDelta = CurMillis - self.LastMillis
                 RawDelta = self.Raw - self.LastRaw
 
-                Res = (RawDelta * 1000.0) / MillisDelta
-
-                #self.RawRateEMA = self.EMA(self.RawRateEMA, self.EMAN, Res)
-                self.RawRate = Res
+                if MillisDelta > 0
+                    Res = (RawDelta * 1000.0) / MillisDelta
+                    self.RawRate = Res
+                end
 
                 # Step mills
                 self.LastMillis = CurMillis
@@ -459,6 +459,10 @@ class Watering
             self.PauseSoilMaxStat = true
             self.Counter1BeforeStart = self.FlowSensors[0].Raw
             print("Counter: ", self.FlowSensors[0].Raw)
+            # A new flood while the previous "return to default teleperiod"
+            # timer is still pending would let it kill this session's fast
+            # telemetry mid-run. Cancel it here.
+            tasmota.remove_timer("ID_ENDFASTTELE")
             if self.PlannedFlood
                 self.FinishRule = "COUNTER#C1>="..(self.FlowSensors[0].Raw+self.Counter1Backflow+self.PlannedFlood)
             else
@@ -523,7 +527,7 @@ class Watering
 
     def timer_endfasttele_after_flooded()
         print("Timer: end fast teleperiod after flooded")
-        tasmota.cmd("TelePeriod 1") # Default
+        tasmota.cmd("TelePeriod 300") # Default Tasmota teleperiod (not the flood's fast 10s)
     end
 
     def timer_soil_transition_after_flooded()
@@ -541,6 +545,10 @@ class Watering
             print("Autofloood: Wet lewel not reached. Repeat flooding")
             # TODO: increment Default
             self.Counter1FloodDefault = self.Counter1FloodDefault * 1.2
+            if self.Counter1FloodDefault > self.MaxFlood
+                self.Counter1FloodDefault = self.MaxFlood
+                print("Counter1FloodDefault capped at MaxFlood " .. self.MaxFlood)
+            end
             tasmota.cmd("Power1 1")
         else
             # Flooding session finished?
@@ -673,6 +681,7 @@ class Watering
                 tasmota.set_timer(1000, /-> self.init_sensors(), "ID_DELAY_INIT")
             else
                 print("Giving up on delayed sensor init")
+                print("WARNING: Watering driver NOT registered (sensors never came up)")
             end
             return
         end
@@ -978,6 +987,9 @@ class Watering
 
     def json_append()
         #- add sensor value to teleperiod -#
+        # NOTE: Keys of the "Watering" dict are part of the external integration
+        # contract (InfluxDB / Grafana / OpenHAB via Ifx + teleperiod JSON).
+        # Renaming/removing a key requires updating external consumers first.
         import json
         import string
         var wtele = {
