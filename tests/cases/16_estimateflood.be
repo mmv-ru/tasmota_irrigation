@@ -15,13 +15,14 @@ wp1.SoilSensors[0].RawEma = 850
 var est = wp1.estimateflood()
 assert_eq(est, 218, "linear estimate rounded down")
 
-section("estimate_zero_for_small_dose")
+section("estimate_nil_for_small_dose")
 
-# Estimated < 100 -> returns 0 (no flood needed)
+# Estimated < 100 -> returns nil (estimate unusable, fall back to default),
+# not 0 (would falsely mean "no flooding needed")
 wp1.LastFloodVol = 50
 wp1.SoilMaxHymidity = 850
 wp1.SoilSensors[0].RawEma = 840  # CurDRaw=40, LastFloodDRaw=50 -> 50*40/50=40 < 100
-assert_eq(wp1.estimateflood(), 0, "small needed dose -> 0")
+assert_eq(wp1.estimateflood(), nil, "small needed dose -> nil")
 
 section("estimate_nil_on_exception")
 

@@ -145,6 +145,10 @@ class SoilSensor: AbstractSensor
 
     def SetDry(raw)
         var r = int(raw)
+        if r == nil || r <= 0
+            print("SoilSensor: SetDry rejected, bad raw " .. str(raw) .. " -> " .. str(r))
+            return false
+        end
         if r - self.RawWet <= 20
             print("SoilSensor: SetDry rejected, gap " .. r .. "-" .. self.RawWet .. " <= 20")
             return false
@@ -158,6 +162,10 @@ class SoilSensor: AbstractSensor
 
     def SetWet(raw)
         var r = int(raw)
+        if r == nil || r <= 0
+            print("SoilSensor: SetWet rejected, bad raw " .. str(raw) .. " -> " .. str(r))
+            return false
+        end
         if self.RawDry - r <= 20
             print("SoilSensor: SetWet rejected, gap " .. self.RawDry .. "-" .. r .. " <= 20")
             return false
@@ -404,6 +412,7 @@ class Watering
     var PrevFloodedVol
     var PrevSoilHPostFlood
     var AutofloodInProcess
+    var BootInitTries
     var Counter1ResetPostpone
 
 
@@ -598,8 +607,10 @@ class Watering
             var CurDRaw = self.SoilSensors[0].RawEma - self.SoilSensors[0].RawWet
             var EstimatedFlood = real(self.LastFloodVol)*CurDRaw/LastFloodDRaw
             if EstimatedFlood < 100
+                # estimate too small/negative for a meaningful dose -> nil (use default),
+                # not 0 (would falsely mean "no flooding needed")
                 log("EstimatedFlood: " .. EstimatedFlood)
-                return 0
+                return nil
             else
                 return int(EstimatedFlood)
             end
@@ -634,20 +645,37 @@ class Watering
     end
 
     def init()
-        def cb_auto_flood()
-            self.auto_flood()
-        end
-        var sensors
-        #var p
+        # On early boot Tasmota subsystems (sensors etc.) may not be up yet.
+        # Do NOT block the main loop with tasmota.delay() here - it stalls the
+        # whole Tasmota and the sensor subsystem never comes up. Defer the
+        # service dependent init to a non-blocking timer with retries instead.
+        print("Init Watering object")
+        print("imported", tasmota)
+        self.BootInitTries = 0
+        self.init_sensors()
+    end
+
+    def init_sensors()
+        # Retry reading sensors until Tasmota has booted. On real boot the read
+        # may throw; catch it and retry via a non-blocking timer instead of
+        # failing the whole load(). In tests/runtime read succeeds immediately.
+        print("Try reading sensors")
         import json
         import math
         import introspect
-        print("Init Watering object")
-        print("imported", tasmota)
-        var tmp = tasmota.read_sensors()
-        print("Sensors readen from tasmota")
-        sensors = json.load(tmp)
-        #sensors = json.load(tasmota.read_sensors()) # Don`t work on boot stage
+        try
+            var tmp = tasmota.read_sensors()
+            print("Sensors readen from tasmota")
+        except .. as e
+            self.BootInitTries += 1
+            print("Sensors not ready on boot: " .. e)
+            if self.BootInitTries <= 30
+                tasmota.set_timer(1000, /-> self.init_sensors(), "ID_DELAY_INIT")
+            else
+                print("Giving up on delayed sensor init")
+            end
+            return
+        end
         print("Sensors loaded from Json string")
 
         self.FlowSensorCalibration = false
@@ -700,6 +728,12 @@ class Watering
         print("Command auto_flood initialized")
         tasmota.remove_cmd("SoilDry")
         tasmota.add_cmd("SoilDry", def (cmd, idx, payload, payload_json)
+            # Empty payload (e.g. "SoilDry") means "report current value",
+            # never "set to 0" (int("") == 0 would reset the threshold).
+            if payload == nil || payload == ""
+                tasmota.resp_cmnd_str(str(self.SoilSensors[0].RawDry))
+                return
+            end
             try
                 if self.SoilSensors[0].SetDry(int(payload))
                     tasmota.resp_cmnd_done()
@@ -713,6 +747,11 @@ class Watering
         end)
         tasmota.remove_cmd("SoilWet")
         tasmota.add_cmd("SoilWet", def (cmd, idx, payload, payload_json)
+            # Empty payload means "report current value", not "set to 0".
+            if payload == nil || payload == ""
+                tasmota.resp_cmnd_str(str(self.SoilSensors[0].RawWet))
+                return
+            end
             try
                 if self.SoilSensors[0].SetWet(int(payload))
                     tasmota.resp_cmnd_done()
@@ -734,6 +773,7 @@ class Watering
         tasmota.remove_cron("auto_flood")
         tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
         tasmota.remove_timer("ID_ENDFASTTELE")
+        tasmota.remove_timer("ID_DELAY_INIT")
         tasmota.remove_cmd("autoflood")
         tasmota.remove_cmd("SoilDry")
         tasmota.remove_cmd("SoilWet")

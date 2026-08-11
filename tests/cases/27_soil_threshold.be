@@ -46,6 +46,31 @@ var before = ss.RawDry
 SIM['cmnds']['SoilDry']('SoilDry', 0, 'not-a-number', '')
 assert_eq(ss.RawDry, before, "SoilDry garbage payload leaves RawDry untouched")
 
+section("cmd_empty_payload_reports_value_not_reset")
+
+# Tasmota convention: command without argument must report current value,
+# never reset to 0 (int("") == 0).
+var wet_before = ss.RawWet
+var dry_before = ss.RawDry
+SIM['cmnds']['SoilWet']('SoilWet', 0, '', '')
+assert_eq(ss.RawWet, wet_before, "SoilWet empty payload keeps RawWet")
+SIM['cmnds']['SoilDry']('SoilDry', 0, '', '')
+assert_eq(ss.RawDry, dry_before, "SoilDry empty payload keeps RawDry")
+SIM['cmnds']['SoilWet']('SoilWet', 0, 'not-a-number', '')
+assert_eq(ss.RawWet, wet_before, "SoilWet garbage payload keeps RawWet")
+assert_eq(persist.find('TargetWet'), wet_before, "SoilWet garbage payload not persisted")
+
+section("setter_guards_zero")
+
+# direct setter calls must not accept 0 / empty / garbage
+persist.saves = 0
+assert_true(!ss.SetWet(''), "SetWet empty string rejected")
+assert_true(!ss.SetWet(0), "SetWet 0 rejected")
+assert_true(!ss.SetDry(0), "SetDry 0 rejected")
+assert_eq(ss.RawWet, wet_before, "SetWet guard keeps RawWet")
+assert_eq(ss.RawDry, dry_before, "SetDry guard keeps RawDry")
+assert_eq(persist.saves, 0, "no save on guarded setter calls")
+
 section("web_arg_sets_threshold")
 
 webserver.has_arg = def (name) return name == 'm_soildry' end
