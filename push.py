@@ -161,7 +161,7 @@ def main():
             for line in filter(lambda x: len(x.strip()), n_log['lines']):
                 print(line)
             time.sleep(0.2)
-        # consoleCommand('BrRestart')
+        t.consoleCommand('BrRestart')
 
 
 if __name__ == "__main__":

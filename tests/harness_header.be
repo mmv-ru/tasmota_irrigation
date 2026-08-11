@@ -61,6 +61,7 @@ tasmota.read_sensors = def ()
     return json.dump(SIM['sensors'])
 end
 tasmota.millis = def () return SIM['millis'] end
+tasmota.delay = def (ms) end
 tasmota.rtc = def () return {'local': SIM['rtc_local']} end
 
 tasmota.cmd = def (c)
