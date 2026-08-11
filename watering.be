@@ -1005,6 +1005,11 @@ class Watering
 
 end
 
+# Configure InfluxDB telemetry BEFORE (re)creating the Watering driver so that
+# system data keeps flowing even if the driver crashes during deinit/init.
+tasmota.cmd('ifx {"State":"ON","Host":"172.17.200.197","Port":8086,"Version":2,"Bucket":"e39ac351b59fc1d9","Org":"openhab"}')
+tasmota.cmd("IfxToken ");
+
 print("Check for old watering object")
 import introspect
 #print(introspect.get(global, "wp1"))
@@ -1016,7 +1021,4 @@ end
 print("Add new Watering driver")
 wp1 = Watering()
 print("Watering driver initialized")
-
-tasmota.cmd('ifx {"State":"ON","Host":"172.17.200.197","Port":8086,"Version":2,"Bucket":"e39ac351b59fc1d9","Org":"openhab"}')
-tasmota.cmd("IfxToken ");
 # tasmota.cmd("BrRestart");
