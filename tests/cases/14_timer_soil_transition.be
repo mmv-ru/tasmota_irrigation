@@ -37,4 +37,19 @@ assert_eq(wp1.PrevFloodedVol, flood_vol, "previous flood vol archived")
 assert_eq(wp1.SoilMaxHymidity, nil, "soil max humidity cleared")
 assert_eq(wp1.PauseSoilMaxStat, false, "pause lifted after session")
 
+section("timer_soil_repeat_default_capped_at_maxflood")
+
+# repeated flood escalation must not exceed MaxFlood
+wp1.MaxFlood = 1000
+wp1.Counter1FloodDefault = 900
+wp1.AutofloodInProcess = true
+wp1.SoilHPreFlood = 900
+SIM['sensors']['ANALOG']['A1'] = 890
+wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
+
+wp1.timer_soil_transition_after_flooded()
+
+assert_true(cmds_include("Power1 1"), "repeat flood still commanded")
+assert_eq(wp1.Counter1FloodDefault, 1000, "flood default capped at MaxFlood")
+
 # ---------------- finished ----------------
