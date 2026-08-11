@@ -35,7 +35,14 @@ class AbstractSensor
     end
 
     def Update(sensors)
-        self.Raw = sensors[self.SensorID[0]][self.SensorID[1]]
+        if sensors == nil
+            return
+        end
+        var key0 = self.SensorID[0]
+        if sensors.find(key0) == nil
+            return
+        end
+        self.Raw = sensors[key0][self.SensorID[1]]
     end
 
     def web_sensor()
@@ -97,7 +104,9 @@ class SoilSensor: AbstractSensor
 
     def Update(sensors)
         super(self).Update(sensors)
-
+        if self.Raw == nil
+            return
+        end
         if self.Raw < 2
             self.Status = 'N/C'
             #self.Raw = nil
@@ -132,6 +141,32 @@ class SoilSensor: AbstractSensor
 
     def Raw2Hu(raw)
         return (self.Hu_C[0] + self.Hu_C[1]*raw + self.Hu_C[2]*raw*raw)*100
+    end
+
+    def SetDry(raw)
+        var r = int(raw)
+        if r - self.RawWet <= 20
+            print("SoilSensor: SetDry rejected, gap " .. r .. "-" .. self.RawWet .. " <= 20")
+            return false
+        end
+        self.RawDry = r
+        import introspect
+        introspect.set(persist, 'TargetDry', self.RawDry)
+        persist.save()
+        return true
+    end
+
+    def SetWet(raw)
+        var r = int(raw)
+        if self.RawDry - r <= 20
+            print("SoilSensor: SetWet rejected, gap " .. self.RawDry .. "-" .. r .. " <= 20")
+            return false
+        end
+        self.RawWet = r
+        import introspect
+        introspect.set(persist, 'TargetWet', self.RawWet)
+        persist.save()
+        return true
     end
 
     def member(name)
@@ -242,6 +277,9 @@ class FlowSensor: AbstractSensor
 
     def Update(sensors)
         super(self).Update(sensors)
+        if self.Raw == nil
+            return
+        end
         self._WaterFlow(sensors)
         if self.Status == 'init'
             self.Status = 'unverified'
@@ -391,7 +429,13 @@ class Watering
         import string
         import json
         var sensors = json.load(tasmota.read_sensors())
-        var Counter1 = sensors['COUNTER']['C1']
+        var Counter1 = 0
+        if sensors != nil
+            var counter = sensors.find('COUNTER')
+            if counter != nil
+                Counter1 = counter['C1']
+            end
+        end
         #print(string.format("value: %s trigger: %s", value, trigger))
         if value['State'] == 1
             self.PumpStartMillis = tasmota.millis()
@@ -654,6 +698,33 @@ class Watering
         tasmota.remove_cmd("autoflood")
         tasmota.add_cmd("autoflood", def () self.auto_flood() tasmota.resp_cmnd_done() end)
         print("Command auto_flood initialized")
+        tasmota.remove_cmd("SoilDry")
+        tasmota.add_cmd("SoilDry", def (cmd, idx, payload, payload_json)
+            try
+                if self.SoilSensors[0].SetDry(int(payload))
+                    tasmota.resp_cmnd_done()
+                else
+                    tasmota.resp_cmnd_error()
+                end
+            except .. as e
+                log("SoilDry: bad payload " .. payload, 1)
+                tasmota.resp_cmnd_error()
+            end
+        end)
+        tasmota.remove_cmd("SoilWet")
+        tasmota.add_cmd("SoilWet", def (cmd, idx, payload, payload_json)
+            try
+                if self.SoilSensors[0].SetWet(int(payload))
+                    tasmota.resp_cmnd_done()
+                else
+                    tasmota.resp_cmnd_error()
+                end
+            except .. as e
+                log("SoilWet: bad payload " .. payload, 1)
+                tasmota.resp_cmnd_error()
+            end
+        end)
+        print("Commands SoilDry/SoilWet initialized")
     end
 
     def deinit()
@@ -664,6 +735,8 @@ class Watering
         tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
         tasmota.remove_timer("ID_ENDFASTTELE")
         tasmota.remove_cmd("autoflood")
+        tasmota.remove_cmd("SoilDry")
+        tasmota.remove_cmd("SoilWet")
         tasmota.cmd("Power1 0")
         if self.FinishRule
             tasmota.remove_rule(self.FinishRule)
@@ -682,6 +755,9 @@ class Watering
         import math
         var tmp = tasmota.read_sensors()
         var sensors = json.load(tmp)
+        if sensors == nil
+            return
+        end
         for s: self.SoilSensors
             s.Update(sensors)
         end
@@ -711,6 +787,10 @@ class Watering
     def web_add_main_button()
         webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
         webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_1=1\");'>Reset water counter 1</button>")
+        webserver.content_send(
+            "<p></p>Soil Dry(Raw) <input type='text' id='soil_dry' name='m_soildry' value='" .. str(self.SoilSensors[0].RawDry) .. "'> "
+            .. "Soil Wet(Raw) <input type='text' id='soil_wet' name='m_soilwet' value='" .. str(self.SoilSensors[0].RawWet) .. "'> "
+            .. "<button onclick='la(\"&m_soildry=\"+eb(\"soil_dry\").value+\"&m_soilwet=\"+eb(\"soil_wet\").value);'>Set soil thresholds</button>")
 #        webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_2=1\");'>Reset water counter 1</button>")
     end
 
@@ -761,6 +841,25 @@ class Watering
             end
         except .. as e
             print("web_sensor: conf toggle failed " .. e)
+        end
+
+        try
+            if webserver.has_arg("m_soildry")
+                if self.SoilSensors[0].SetDry(int(webserver.arg("m_soildry")))
+                    print("web_sensor: Soil Dry threshold set to " .. self.SoilSensors[0].RawDry)
+                else
+                    print("web_sensor: Soil Dry threshold rejected")
+                end
+            end
+            if webserver.has_arg("m_soilwet")
+                if self.SoilSensors[0].SetWet(int(webserver.arg("m_soilwet")))
+                    print("web_sensor: Soil Wet threshold set to " .. self.SoilSensors[0].RawWet)
+                else
+                    print("web_sensor: Soil Wet threshold rejected")
+                end
+            end
+        except .. as e
+            print("web_sensor: soil threshold failed " .. e)
         end
 
         import string
