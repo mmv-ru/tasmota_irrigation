@@ -36,6 +36,8 @@ wp1.LastFloodVol = 420
 wp1.SoilMaxHymidity = 805
 wp1.auto_flood()
 assert_true(persist.has('PrevSoilHPreFlood'), "PrevSoilHPreFlood written during auto_flood")
+assert_true(persist.has('SoilHPreFlood'), "SoilHPreFlood written during auto_flood")
+assert_true(persist.has('LastFloodVol'), "LastFloodVol written during auto_flood")
 assert_eq(wp1.PlannedFlood, 300, "estimate fallback default when data missing")
 
 wp1.deinit()
@@ -45,9 +47,23 @@ assert_eq(wp1.PrevSoilHPostFlood, 820, "PrevSoilHPostFlood restored after reboot
 assert_eq(wp1.PrevSoilMaxHymidity, 805, "PrevSoilMaxHymidity restored after reboot")
 assert_true(persist.has('PrevFloodedVol'), "PrevFloodedVol persisted by auto_flood")
 
-section("lastfloodvol_default_when_never_written")
+section("estimate_works_after_reboot")
 
-# LastFloodVol is read from persist with "0" default; written only when flooded
-assert_eq(wp1.LastFloodVol, 0, "LastFloodVol default 0 on fresh persistence")
+# After reboot the last session's SoilHPreFlood/LastFloodVol/SoilMaxHymidity are
+# restored from persist, so estimateflood() must produce a real number, not nil.
+assert_eq(wp1.SoilHPreFlood, 812, "SoilHPreFlood restored after reboot")
+assert_eq(wp1.LastFloodVol, 420, "LastFloodVol restored after reboot")
+# dry enough to build a CurDRaw > 0
+SIM['sensors']['ANALOG']['A1'] = 1100
+wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
+var est = wp1.estimateflood()
+assert_true(est != nil, "estimateflood returns a value after reboot (last session data present)")
+assert_true(est >= 0, "estimateflood non-negative")
+
+section("lastfloodvol_restored_when_written")
+
+# LastFloodVol is persisted at session start (with SoilHPreFlood etc.) and
+# restored on boot, so the flood estimate has real last-session data.
+assert_eq(wp1.LastFloodVol, 420, "LastFloodVol restored from persistence")
 
 # ---------------- finished ----------------

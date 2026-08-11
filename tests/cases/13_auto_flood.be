@@ -42,6 +42,8 @@ wp1.auto_flood()
 assert_eq(persist.saves, 1, "single persist.save for prev-stats batch")
 var have = persist.has('PrevFloodedVol')
 assert_true(have, "PrevFloodedVol written to persist")
+assert_true(persist.has('SoilHPreFlood'), "SoilHPreFlood written to persist")
+assert_true(persist.has('LastFloodVol'), "LastFloodVol written to persist")
 
 section("auto_flood_estimate")
 
