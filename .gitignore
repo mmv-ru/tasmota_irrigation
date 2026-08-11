@@ -2,6 +2,8 @@
 /Снимок экрана*
 /Archive
 /.venv-jupyter/**
+/.pyvenv/**
+/__pycache__/
 .~lock.*
 
 tests/out/

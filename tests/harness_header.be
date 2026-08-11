@@ -107,6 +107,9 @@ tasmota.remove_cmd = def (n)
     end
 end
 tasmota.resp_cmnd_done = def () end
+tasmota.resp_cmnd_error = def () end
+tasmota.resp_cmnd_failed = def () end
+tasmota.resp_cmnd_str = def (m) end
 tasmota.get_power = def (i) return nil end
 tasmota.set_power = def (idx, onoff)
     SIM_CMD("Power" .. (idx+1) .. " " .. (onoff ? "1" : "0"))

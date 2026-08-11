@@ -152,6 +152,7 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `24_soil_sensor` | SoilSensor: init-поля из persist, EMA (сходимость/прилипание при малых Raw), статус N/C, Dry/Wet-пороги |
 | `25_web_guard` | web_sensor не обрезает вывод при падении Soil-блока (тип_error от nil): следующий soil, flow и max-столбцы живы |
 | `26_persist_reboot` | persist переживает BrRestart (deinit + Watering()): калибровка Dry/Wet и Prev*-статистика восстановлены; LastFloodVol дефолт 0 |
+| `27_soil_threshold` | RawDry/RawWet редактируются командами SoilDry/SoilWet и веб-аргами m_soildry/m_soilwet; валидация разрыва > 20; persist TargetDry/TargetWet; снятие команд в deinit |
 
 ## Полезное
 
