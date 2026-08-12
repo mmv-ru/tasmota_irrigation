@@ -153,6 +153,8 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `25_web_guard` | web_sensor не обрезает вывод при падении Soil-блока (тип_error от nil): следующий soil, flow и max-столбцы живы |
 | `26_persist_reboot` | persist переживает BrRestart (deinit + Watering()): калибровка Dry/Wet и Prev*-статистика восстановлены; LastFloodVol дефолт 0 |
 | `27_soil_threshold` | RawDry/RawWet редактируются командами SoilDry/SoilWet и веб-аргами m_soildry/m_soilwet; валидация разрыва > 20; persist TargetDry/TargetWet; снятие команд в deinit |
+| `28_sensors_empty` | Загрузка когда read_sensors не отдаёт сенсоры (пустые map) — инициализация без краха |
+| `29_rule_power_helpers` | Хелперы OFF-ветки `rule_power`: `_compensate_backflow` (все 3 ветки: дельта выше/ниже backflow), `_record_flood` (накопление объёма, 2ч/24ч таймер, пере-арм), `_end_session_no_water`; полный проход OFF через `rule_power` |
 
 ## Полезное
 

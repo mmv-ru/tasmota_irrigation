@@ -42,7 +42,8 @@
 4. **`save()` — запись во Flash, wear-out**: не вызывать часто (не в циклах, не каждый тик `every_second`). Сначала несколько `introspect.set(persist, k, v)` / `persist.key = v`, затем ОДИН `persist.save()`. В реальном `persist.be` `save()` пишет только если `_dirty` (после `setmember`) или передан `force_save=true` / вызван `persist.dirty()`.
 5. **Рекомендация**: держать ОДИН `import persist` на верхнем уровне скрипта и использовать его во всех функциях (не импортировать повторно внутри функций).
 6. **Калибровка Dry/Wet (проект irrigation)**: `SoilSensor.setmember('Dry'/'Wet')` (watering.be) теперь пишет `TargetDry`/`TargetWet` в persist и вызывает `save()`. В `init()` эти ключи читаются как **RAW-значения** (`int(persist.find("TargetDry","800"))`), а `setmember` принимает **процент влажности** и конвертирует через `Hymidity2Raw()`. Т.е. в файле хранится RAW, в setter передаётся %.
-7. **`auto_flood`**: партия prev-статов (`PrevSoil*`, `PrevFloodedVol`) пишется одним `persist.save()` ПОСЛЕ цикла `for`, а не внутри него (иначе 4 записи во Flash за раз).
+7. **`auto_flood`**: prev-статы (`PrevSoil*`, `PrevFloodedVol`) и estimate-входы (`SoilHPreFlood`/`LastFloodVol`/`SoilMaxHymidity`) пишутся ОДНОЙ партией через `self._persist_batch([...], self)` — цикл `introspect.set` + ОДИН `persist.save()` (7 ключей за один save, не 7 записей). `_persist_batch(keys, source)` у `Watering` читает значения из `source` (по умолчанию `self`) и делает один `save()`; применён в `auto_flood`, `every_second` (подтверждение SoilMaxHymidity, 2 ключа).
+8. **Команда `counter1` (Tasmota)**: положительное число без знака (`counter1 500`) = PRESET (перезапись абсолютного значения); `counter1 0` = reset; `-n` = вычесть; `+n` = добавить. Форма `counter1??` (с `??`) — НЕ команда: это консольный суффикс группового применения, в справочнике команд не документирована. `_compensate_backflow()` использует preset-форму для коррекции счётчика после pump stop.
 8. **Для тестов (stub persist)**: persist обязан быть **классом с виртуальными `member`/`setmember`** (`class Persist ... end; var persist = Persist()`), а не module-instance. Только так `introspect.set(persist, k, v)` реально попадает в внутренний map (module-instance не даёт virtual setters — `introspect.set` молча не пишет).
 
 ### `webserver` object (Web UI)
@@ -118,6 +119,7 @@ tasmota.add_cmd('SetMyRelay', my_cmd)
 6. `try ... except .. as e, m ... end` — правильная защищенная конструкция. Синтаксис: **`..` (две точки)** ставится между `except` и `as`, т.е. `except .. as e` (перехват без переменной — краткая форма) или `except .. as e, m` (e — текст, m — стек-трейс). Без `..` нельзя писать `except e` — это `syntax_error` (`'e' undeclared`).
 7. **ВАЖНО (Berry 1.1.0):** голый `except` (без `.. as var`) — НЕ гасит исключение. Тело `except` выполняется и print/log пишутся, но исключение всё равно пробрасывается выше: печатается `stack traceback`, `rc≠0`, дальнейший код не исполняется. Для реальной защиты используйте **только `except .. as e`** (или `.. as e, m`).
 8. **Сборка для тестов — stock Berry v1.1.0** (не Tasmota-патч). Отличия, критичные для кода: (a) `introspect.setmodule` отсутствует — persist-стаб это файл-модуль `tests/modules/persist.be` (class-instance); (b) `string.format('%d', 'строка')` даёт **пусто**, а не число — для команды счётчика обязателен `%s` (`Reset()`, watering.be:253).
+9. **`import string` — скоуп инструкции, НЕ глобальный**: `import string` внутри одной функции/метода доступен только там. Если вынесли код с `string.format()` в отдельный метод — добавьте `import string` в него (пример: `_compensate_backflow()` после рефакторинга из `rule_power`, watering.be:519). **ВАЖНО**: в тестовом окружении `string` доступен глобально (часть harness-стаба), поэтому на устройстве вылезает `syntax_error: 'string' undeclared (first use in this function)`, а тесты зелёные. Всегда проверять реальным `make push`.
 
 ---
 
@@ -131,11 +133,11 @@ tasmota.add_cmd('SetMyRelay', my_cmd)
 - ADC: `Raw2mVScale` из делителя 30k/30k (≈1.197 mV/source), полином `Hu_C` — недоделка.
 
 ### 🔄 FSM автополива (event-driven) — КРАТКОЕ РЕЗЮМЕ
-- **Планировщик**: `auto_flood()` по cron (часы 14–01) — если `IsDry()` и не идёт сессия → сохраняет Prev*-статистику, считает дозу `estimateflood()` (иначе `Counter1FloodDefault`), инициализирует сессию, `Power1 1`.
+- **Планировщик**: `auto_flood()` по cron (часы 14–01) — если `IsDry()` и не идёт сессия → сохраняет Prev*-статистику + estimate-входы одной партией (`_persist_batch`), считает дозу `planned_dose()` (= `estimateflood()` при валидной оценке, иначе `Counter1FloodDefault`), инициализирует сессию, `Power1 1`.
 - **Старт** (`rule_power(ON)`): защита от запуска на мокрой почве (`IsWet()` → `Power1 0`), TelePeriod 10, `FinishRule = COUNTER#C1 >= before+backflow+доза`, `RateMeasuring=true`.
 - **Лимит** (`rule_flooded`): превышен счётчик → `Power1 0`.
-- **Стоп** (`rule_power(OFF)`): компенсация backflow, `LastFloodVol += CounterDelta`, задержка проверки 2ч (24ч при `LastFloodVol > MaxFlood/2`), таймер возврата TelePeriod 300 через 60с.
+- **Стоп** (`rule_power(OFF)`): хелпер `_compensate_backflow(Counter1)` — вычитает backflow из счётчика (preset `counter1`) и из дельты, возвращает нетто; `_record_flood(CounterDelta)` — `LastFloodVol += delta`, задержка проверки 2ч (24ч при `LastFloodVol > MaxFlood/2`) + таймер `timer_soil_transition_after_flooded`; при `CounterDelta==0` вместо него `_end_session_no_water()` (закрывает сессию без проверки почвы). Затем таймер возврата TelePeriod 300 через 60с.
 - **Проверка результата** (`timer_soil_transition_after_flooded`, через 2ч/24ч): земля всё ещё сухая → `Counter1FloodDefault × 1.2` (cap `MaxFlood`) и повторный полив; иначе `_autoflood_end()`.
 - **Завершение** (`_autoflood_end`): сброс флагов, опциональный отложенный сброс счётчика (`Counter1ResetPostpone`), `PauseSoilMaxStat=false`.
-- **Фон** (`every_second`, 1/с): `read_sensors` → Update сенсоров; трекинг минимума `SoilMaxHymidity` (кроме периода `PauseSoilMaxStat`), подтверждение после роста +5 с `persist.save`.
+- **Фон** (`every_second`, 1/с): `read_sensors` → Update сенсоров; трекинг минимума `SoilMaxHymidity` (кроме периода `PauseSoilMaxStat`), подтверждение после роста +5 — через `_persist_batch(['SoilMaxHymidity','SoilMaxHymidityTime'])` (один save).
 - **Полная блоксхема**: `docs/irrigation_fsm.md` (mermaid + таблица методов/флагов + цикл самокоррекции). Обновлять её при изменении FSM-логики в `watering.be`.

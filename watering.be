@@ -497,38 +497,54 @@ class Watering
                 self.FinishRule = nil
                 print("Flooding FinishRule removed")
             end
-            var CounterDelta = Counter1 - self.Counter1BeforeStart
-            print("Counter: ", Counter1)
-            print("CounterDelta: ", CounterDelta)
-            print("PumpRun: " .. (self.PumpRunMillis/1000.))
             self.FlowSensors[0].RateMeasuring = false
-            if CounterDelta > self.Counter1Backflow
-                tasmota.cmd(string.format("counter1 %i", Counter1 - self.Counter1Backflow))
-                CounterDelta = CounterDelta - self.Counter1Backflow
-            else
-                tasmota.cmd(string.format("counter1 %i", Counter1 - CounterDelta))
-                CounterDelta = 0
-            end
+            var CounterDelta = self._compensate_backflow(Counter1)
             print("Counter compensated: ", Counter1)
             print("Water flooded ".. CounterDelta)
             if CounterDelta > 0
-                var flood_delay = 2*60*60*1000
-                self.LastFloodTime = tasmota.rtc()['local']
-                self.LastFloodVol += CounterDelta
-                if (self.LastFloodVol > self.MaxFlood/2)
-                   flood_delay = 24*60*60*1000
-                end
-                tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
-                tasmota.set_timer(flood_delay, /->self.timer_soil_transition_after_flooded(), "ID_SOILTRANSITION_AFTERFLOOD")
+                self._record_flood(CounterDelta)
             else
-                self.PauseSoilMaxStat = false
-                self.AutofloodInProcess = false
+                self._end_session_no_water()
             end
             tasmota.remove_timer("ID_ENDFASTTELE")
             tasmota.set_timer(60*1000, /->self.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
         else
             print("WARNING: Unexpected watering pump state ", value['State'])
         end
+    end
+
+    def _compensate_backflow(Counter1)
+        # Subtract backflow (water that returned through the pipe after pump
+        # stop) from the counters and from the session delta. Returns the net
+        # amount of water that actually left the pipe.
+        import string
+        var d = Counter1 - self.Counter1BeforeStart
+        if d > self.Counter1Backflow
+            tasmota.cmd(string.format("counter1 %i", Counter1 - self.Counter1Backflow))
+            return d - self.Counter1Backflow
+        else
+            tasmota.cmd(string.format("counter1 %i", Counter1 - d))
+            return 0
+        end
+    end
+
+    def _record_flood(CounterDelta)
+        # Record a finished flood dose and schedule the post-flood soil check.
+        var flood_delay = 2*60*60*1000
+        self.LastFloodTime = tasmota.rtc()['local']
+        self.LastFloodVol += CounterDelta
+        if (self.LastFloodVol > self.MaxFlood/2)
+           flood_delay = 24*60*60*1000
+        end
+        tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
+        tasmota.set_timer(flood_delay, /->self.timer_soil_transition_after_flooded(), "ID_SOILTRANSITION_AFTERFLOOD")
+    end
+
+    def _end_session_no_water()
+        # The pump ran but no water passed (or the run was aborted before any
+        # water flowed): close the session without scheduling a soil check.
+        self.PauseSoilMaxStat = false
+        self.AutofloodInProcess = false
     end
 
     def rule_flooded(value, trigger)
@@ -589,29 +605,21 @@ class Watering
         #print("Autoflood: Closure test A1EMA ", self.SoilSensors[0].RawEma)
         if self.SoilSensors[0].IsDry() && !self.AutofloodInProcess
             print("Autoflood: scheduled start")
-            # Save previous session stats
+            # Save previous session stats and the last finished session's estimate
+            # inputs in one batch. Persisting the estimate inputs (SoilHPreFlood /
+            # LastFloodVol / SoilMaxHymidity) keeps estimateflood() working after
+            # a reboot; otherwise they come back nil -> estimate returns nil ->
+            # fallback to default. All keys are read from self via introspect.get.
             self.PrevSoilHPreFlood = self.SoilHPreFlood
             self.PrevSoilHPostFlood = self.SoilHPostFlood
             self.PrevFloodedVol = self.LastFloodVol
             self.PrevSoilMaxHymidity = self.SoilMaxHymidity
-            import introspect
-            for p: ['PrevSoilMaxHymidity',
-                   'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
-                introspect.set(persist, p, introspect.get(self, p, nil))
-            end
-            # Persist the last finished session's estimate inputs too, so that
-            # estimateflood() still works after a reboot (otherwise SoilHPreFlood /
-            # LastFloodVol come back nil -> estimate returns nil -> fallback).
-            introspect.set(persist, 'SoilHPreFlood', self.SoilHPreFlood)
-            introspect.set(persist, 'LastFloodVol', self.LastFloodVol)
-            introspect.set(persist, 'SoilMaxHymidity', self.SoilMaxHymidity)
-            persist.save()
+            self._persist_batch(['PrevSoilMaxHymidity', 'PrevSoilHPreFlood',
+                   'PrevFloodedVol', 'PrevSoilHPostFlood',
+                   'SoilHPreFlood', 'LastFloodVol', 'SoilMaxHymidity'], self)
 
-            if self.estimateflood()
-               self.PlannedFlood = self.estimateflood()
-            else
-               self.PlannedFlood = self.Counter1FloodDefault
-            end
+            # Effective dose: estimate if valid, else the default flood volume.
+            self.PlannedFlood = self.planned_dose()
 
             # Init new flood session
             self.LastFloodVol = 0
@@ -643,6 +651,24 @@ class Watering
             log("estimateflood: unable to estimate. " .. exception , 1)
             return nil
         end
+    end
+
+    def planned_dose()
+        # Effective planned dose for the upcoming flood: the linear estimate
+        # when it is usable, otherwise fall back to the default flood volume.
+        var est = self.estimateflood()
+        return est != nil ? est : self.Counter1FloodDefault
+    end
+
+    def _persist_batch(keys, source)
+        # Write a batch of keys to persist in one pass and save once.
+        # source defaults to self (values read via introspect.get).
+        source = source != nil ? source : self
+        import introspect
+        for p: keys
+            introspect.set(persist, p, introspect.get(source, p, nil))
+        end
+        persist.save()
     end
 
     def pulseencode(time)
@@ -854,10 +880,7 @@ class Watering
         if self.SoilMaxHymidity &&  !self.SoilMaxHymidityConfirmed && self.SoilSensors[0].RawEma > self.SoilMaxHymidity + 5
             print("SoilMaxHymidityConfirmed")
             self.SoilMaxHymidityConfirmed = true
-            import introspect
-            introspect.set(persist, 'SoilMaxHymidity', self.SoilMaxHymidity)
-            introspect.set(persist, 'SoilMaxHymidityTime', self.SoilMaxHymidityTime)
-            persist.save()
+            self._persist_batch(['SoilMaxHymidity', 'SoilMaxHymidityTime'])
         end
 
         #print("every_second: processed")
