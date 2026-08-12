@@ -222,28 +222,39 @@ class SoilSensor: AbstractSensor
         return self.Raw <= self.RawWet
     end
 
-    def web_sensor()
+    def web_sensor(detail)
         import string
         var msg
-        msg  = string.format(
-            "{s}" .. self.Name .. "{e}"..
-            "{s}| auto hreshold{m}%01.2f{e}"..
-            "{s}| | Hu{m}%01.1f%%{e}"..
-            "{s}| auto target{m}%01.2f{e}"..
-            "{s}| | Hu{m}%01.1f%%{e}",
-            self.SensorID[1],
-            self.RawDry, self.Raw2Hu(self.RawDry),
-            self.RawWet, self.Raw2Hu(self.RawWet)
-            )
-        msg = msg .. string.format(
-            "{s}| Raw{m}%i{e}" ..
-#            "{s}| Raw EMA(%i){m}%01.4f{e}",
-            "{s}| Raw EMA(%i){m}%01.4f{e}",
-            self.Raw, self.EMAN, self.RawEma)
-        msg = msg .. string.format(
-            "{s}| Hymidity u{m}%01.1f%%{e}"..
-            "{s}| | mV{m}%01.1f mV{e}",
-            self.Hu, self.mV)
+        if detail
+            msg  = string.format(
+                "{s}" .. self.Name .. "{e}"..
+                "{s}| auto hreshold{m}%01.2f{e}"..
+                "{s}| | Hu{m}%01.1f%%{e}"..
+                "{s}| auto target{m}%01.2f{e}"..
+                "{s}| | Hu{m}%01.1f%%{e}",
+                self.SensorID[1],
+                self.RawDry, self.Raw2Hu(self.RawDry),
+                self.RawWet, self.Raw2Hu(self.RawWet)
+                )
+            msg = msg .. string.format(
+                "{s}| Raw{m}%i{e}" ..
+                "{s}| Raw EMA(%i){m}%01.4f{e}",
+                self.Raw, self.EMAN, self.RawEma)
+            msg = msg .. string.format(
+                "{s}| Hymidity u{m}%01.1f%%{e}"..
+                "{s}| | mV{m}%01.1f mV{e}",
+                self.Hu, self.mV)
+        else
+            msg = string.format(
+                "{s}" .. self.Name .. "{e}",
+                self.SensorID[1])
+            if self.RawEma != nil
+                msg = msg .. string.format(
+                    "{s}| Raw EMA(%i){m}%01.4f{e}"..
+                    "{s}| Hymidity{m}%01.1f%%{e}",
+                    self.EMAN, self.RawEma, self.Raw2Hymidity(self.RawEma))
+            end
+        end
 
         tasmota.web_send_decimal(msg)
 
@@ -354,7 +365,7 @@ class FlowSensor: AbstractSensor
         end
     end
 
-    def web_sensor()
+    def web_sensor(detail)
         import string
         var msg
         msg = string.format(
@@ -363,15 +374,12 @@ class FlowSensor: AbstractSensor
         msg = msg .. string.format(
                   "{s}| Water used{m}%01.1f ml{e}",
                   self.Raw2Flow(self.Raw))
-        msg = msg .. string.format(
-                  "{s}| Water flow{m}%i pulse/s{e}"..
-                  "{s}| Water flow{m}%01.1f ml/min{e}",
-                  self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
-
-#        msg = msg .. string.format(
-#                  "{s}| MillsDeltaEMA{m}%f{e}"..
-#                  "{s}| MillsDeltaStdDevEMA{m}%f{e}",
-#                  self.MillisDeltaEMA, self.MillisDeltaStdDevEMA)
+        if detail
+            msg = msg .. string.format(
+                      "{s}| Water flow{m}%i pulse/s{e}"..
+                      "{s}| Water flow{m}%01.1f ml/min{e}",
+                      self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
+        end
 
         tasmota.web_send_decimal(msg)
     end
@@ -414,6 +422,9 @@ class Watering
     var AutofloodInProcess
     var BootInitTries
     var Counter1ResetPostpone
+    var DetailView
+    var TimeCacheKey
+    var TimeCache
 
 
     def button_pressed(cmd, idx, payload, raw)
@@ -654,6 +665,18 @@ class Watering
         end
     end
 
+    def _TimeStr(ts)
+        # Cache formatted timestamp: web_sensor() runs every second on page
+        # refresh, strftime() is expensive; the value changes rarely.
+        if ts == self.TimeCacheKey
+            return self.TimeCache
+        end
+        var s = ts != nil ? tasmota.strftime("%d %B %H:%M", ts) : nil
+        self.TimeCacheKey = ts
+        self.TimeCache = s
+        return s
+    end
+
     def update()
 
     end
@@ -728,6 +751,7 @@ class Watering
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
         self.Counter1ResetPostpone = false
+        self.DetailView = false
         self.Counter1BeforeStart = self.FlowSensors[0].Raw
 
         tasmota.add_driver(self)
@@ -842,6 +866,7 @@ class Watering
     def web_add_main_button()
         webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
         webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_1=1\");'>Reset water counter 1</button>")
+        webserver.content_send("<p></p><button onclick='this.innerHTML=(this.innerHTML.indexOf(\"Compact view\")>=0)?\"Detail view\":\"Compact view\";la(\"&m_detail=2\");'>" .. (self.DetailView ? "Compact view" : "Detail view") .. "</button>")
         webserver.content_send(
             "<p></p><div style='display:flex;flex-wrap:wrap;gap:4px;align-items:center'>"
             .. "Soil Dry(Raw) <input type='text' id='soil_dry' name='m_soildry' style='width:5em;padding:2px' value='" .. str(self.SoilSensors[0].RawDry) .. "'> "
@@ -900,6 +925,22 @@ class Watering
         end
 
         try
+            if webserver.has_arg("m_detail")
+                var v = webserver.arg("m_detail")
+                if v == "1"
+                    self.DetailView = true
+                elif v == "0"
+                    self.DetailView = false
+                else
+                    self.DetailView = !self.DetailView
+                end
+                print("web_sensor: detail view " .. (self.DetailView ? "on" : "off"))
+            end
+        except .. as e
+            print("web_sensor: detail toggle failed " .. e)
+        end
+
+        try
             if webserver.has_arg("m_soildry")
                 if self.SoilSensors[0].SetDry(int(webserver.arg("m_soildry")))
                     print("web_sensor: Soil Dry threshold set to " .. self.SoilSensors[0].RawDry)
@@ -938,13 +979,13 @@ class Watering
         end
 
         try
-            self.SoilSensors[0].web_sensor()
+            self.SoilSensors[0].web_sensor(self.DetailView)
         except .. as e
             print("web_sensor: soil1 row failed " .. e)
         end
 
         try
-            self.SoilSensors[1].web_sensor()
+            self.SoilSensors[1].web_sensor(self.DetailView)
         except .. as e
             print("web_sensor: soil2 row failed " .. e)
         end
@@ -957,7 +998,7 @@ class Watering
                 if self.SoilMaxHymidityConfirmed
                     msg += string.format(
                             "{s}SoilHymidity1 max time{m}%s{e}",
-                            tasmota.strftime("%d %B %H:%M", self.SoilMaxHymidityTime))
+                            self._TimeStr(self.SoilMaxHymidityTime))
                 end
                 tasmota.web_send_decimal(msg)
             except .. as e
@@ -970,7 +1011,7 @@ class Watering
                 msg = string.format(
                           "{s}Last flood time{m}%s{e}"..
                           "{s}Last flood{m}%01.1f ml{e}",
-                          tasmota.strftime("%d %B %H:%M", self.LastFloodTime),
+                          self._TimeStr(self.LastFloodTime),
                           self.FlowSensors[0].Raw2Flow(self.LastFloodVol))
                 tasmota.web_send_decimal(msg)
             except .. as e
