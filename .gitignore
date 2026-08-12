@@ -4,6 +4,7 @@
 /.venv-jupyter/**
 /.pyvenv/**
 /__pycache__/
+**/__pycache__/
 .~lock.*
 /a.out
 

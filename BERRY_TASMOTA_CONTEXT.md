@@ -63,6 +63,14 @@
 6. **Прямой вызов `wp1.web_sensor()` из berry-консоли работает** и отдаёт полные строки; диспетчер `callBerryEventDispatcher` вызывает метод драйвера с 4 аргументами — в Berry это безвредно для методов без параметров.
 7. **`Tasmota CSS` растягивает `input`/`button` на `width:100%`** (поля в столбик). Для одной строки — обёртка `<div style='display:flex;flex-wrap:wrap;gap:4px;align-items:center'>` + `style='width:auto'` на кнопке и `style='width:5em'` на инпутах.
 
+### ⚡ Компактный/Detail-режим `web_sensor()` и кэш `_TimeStr()` (защита от LoadAvg)
+1. **Проблема**: `web_sensor()` выполняется на КАЖДЫЙ `.?m=1`-запрос (при открытой странице — раз в секунду). Тяжёлые `string.format` (13 вызовов на сенсор) + `tasmota.strftime()` → заметный LoadAvg на ESP32 (~67/200 при открытой странице).
+2. **Компактный по умолчанию**: `SoilSensor.web_sensor(detail)`/`FlowSensor.web_sensor(detail)` — при `detail=false` отдают 1 ряд за сенсор: soil → `Raw EMA(N)` + `Hymidity` (Raw и пороги скрыты), flow → только `Water used`. `Watering.web_sensor()` передаёт `self.DetailView`. Измерено на устройстве: compact 21-23 ряда, detail 33.
+3. **Тумблер**: кнопка в `web_add_main_button()` шлёт `&m_detail=2`, обработчик в `web_sensor()` трактует `"1"`/`"0"` как явную установку, **любое другое значение — переключение** (`self.DetailView = !self.DetailView`). Флаг `DetailView` живёт в объекте `wp1` → переживает 1-секундный авто-refresh.
+4. **Кнопка без релоада**: HTML в `web_add_main_button()` рендерится ОДИН раз при `GET /`, поэтому надпись не обновляется сама. Решение — JS-флип в `onclick` ПЕРЕД `la()`: `this.innerHTML=(this.innerHTML.indexOf("Compact view")>=0)?"Detail view":"Compact view";la("&m_detail=2");`. Надпись = действие по следующему клику, не текущее состояние.
+5. **Кэш дат**: `_TimeStr(ts)` кэширует `tasmota.strftime("%d %B %H:%M", ts)` в `self.TimeCache[key/value]`, пересчитывает только при смене таймстампа. Вызывается из `web_sensor()` (строки «Last flood time» и «SoilHymidity1 max time») вместо прямого `strftime` — убирает до 2 тяжёлых вызовов в секунду. Тесты проходят с любым форматом: stub `tasmota.strftime` возвращает фиксированную строку.
+6. **Проверено**: `string.format("%s", nil)` даёт `"nil"`, `%i`/`%01.4f` с `nil` — пустую строку (без краха) — поэтому компактные ветки безопасны при `RawEma==nil` (см. тест 25_web_guard).
+
 ### `wire` object (I2C)
 | Метод | Описание |
 |-------|----------|
@@ -78,6 +86,13 @@
 |-------|----------|
 | `path.listdir("dir")` | Список файлов в директории |
 | `path.listdir("archive.tapp#")` | v15.3.0+: Список файлов внутри `.tapp` архива |
+
+### `.bec` (Bytecode) — МЕХАНИКА ЗАГРУЗКИ (v13.4.0.3+)
+1. **До v13.4.0.3** `load()` автоматически компилировал `.be` в байткод и **сохранял `.bec` рядом** (аналог `.py`/`.pyc`).
+2. **С v13.4.0.3** автосоздание `.bec` **убранo**: при `load("x.be")` приоритет у исходника `.be`, а существующий `x.bec` **удаляется** (защита от рассинхронизации версий).
+3. **`load("x.bec")`** грузит только байткод (`.be` игнорируется); если `.be` нет — `load("x.be")` пробует `x.bec`.
+4. **Создать `.bec`** можно только явно: `tasmota.compile("x.be")` → `true` + создаёт `x.bec`.
+5. **На практике (v14/v15)**: `.bec`-файлы в ФС не появляются при обычном `load()` из `autoexec.be` — это нормальное поведение, НЕ ошибка.
 
 ---
 
