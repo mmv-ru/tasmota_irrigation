@@ -122,14 +122,35 @@ assert_true(string.find(SIM['lastresp'], '"PrevFloodedVol"') >= 0, "Store JSON c
 
 section("web_sensor_store_table")
 
+# Detail view only: Store.* rows live under the SoilA1Hymidity accordion,
+# in explicit current-then-previous order. Duplicate keys (TargetDry/TargetWet/
+# SoilMaxHymidity/SoilMaxHymidityTime) and nil-less keys must NOT appear.
+wp1.DetailView = true
 SIM['websend'] = list()
 wp1.SoilMaxHymidity = nil
 wp1.LastFloodTime = nil
 wp1.web_sensor()
 var joined = ""
 for m: SIM['websend'] joined = joined .. m end
-assert_true(string.find(joined, "Store.TargetDry") >= 0, "web table has Store.TargetDry")
 assert_true(string.find(joined, "Store.PrevSoilHPreFlood") >= 0, "web table has Prev keys")
+assert_true(string.find(joined, "Store.TargetDry") < 0, "Store.TargetDry duplicated by soil row, omitted")
+assert_true(string.find(joined, "Store.TargetWet") < 0, "Store.TargetWet duplicated by soil row, omitted")
+assert_true(string.find(joined, "Store.SoilMaxHymidity") < 0, "Store.SoilMaxHymidity duplicated by max row, omitted")
+assert_true(string.find(joined, "Store.SoilMaxHymidityTime") < 0, "Store.SoilMaxHymidityTime duplicated by max time row, omitted")
+# explicit order: current session first (LastFloodVol), then previous session
+assert_true(string.find(joined, "Store.LastFloodVol") < string.find(joined, "Store.PrevFloodedVol"), "current-session keys before Prev*")
+assert_true(string.find(joined, "Store.PrevFloodedVol") < string.find(joined, "Store.PrevSoilHPostFlood"), "Prev* keys grouped together")
+
+section("store_table_hidden_in_compact")
+
+# compact (DetailView off) must not emit Store.* or max rows at all
+wp1.DetailView = false
+SIM['websend'] = list()
+wp1.web_sensor()
+var cjoined = ""
+for m: SIM['websend'] cjoined = cjoined .. m end
+assert_true(string.find(cjoined, "Store.") < 0, "compact view has no Store.* rows")
+assert_true(string.find(cjoined, "SoilHymidity1 max") < 0, "compact view has no max row")
 
 section("deinit_flushes_store")
 

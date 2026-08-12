@@ -246,9 +246,9 @@ class SoilSensor: AbstractSensor
         if detail
             msg  = string.format(
                 "{s}" .. self.Name .. "{e}"..
-                "{s}| auto hreshold{m}%01.2f{e}"..
+                "{s}| TargetDry{m}%01.2f{e}"..
                 "{s}| | Hu{m}%01.1f%%{e}"..
-                "{s}| auto target{m}%01.2f{e}"..
+                "{s}| TargetWet{m}%01.2f{e}"..
                 "{s}| | Hu{m}%01.1f%%{e}",
                 self.SensorID[1],
                 self.RawDry, self.Raw2Hu(self.RawDry),
@@ -1186,26 +1186,41 @@ class Watering
             print("web_sensor: soil1 row failed " .. e)
         end
 
+        # Detail-only rows grouped under the SoilA1Hymidity accordion: session
+        # max plus the persist store snapshot (current session, then previous
+        # session). TargetDry/TargetWet/SoilMaxHymidity/SoilMaxHymidityTime are
+        # omitted - they duplicate rows already emitted above.
+        if self.DetailView
+            try
+                if self.SoilMaxHymidity != nil
+                    msg = string.format(
+                            "{s}| SoilHymidity1 max{m}%i{e}",
+                            self.SoilMaxHymidity)
+                    if self.SoilMaxHymidityConfirmed
+                        msg += string.format(
+                                "{s}| SoilHymidity1 max time{m}%s{e}",
+                                self._TimeStr(self.SoilMaxHymidityTime))
+                    end
+                    tasmota.web_send_decimal(msg)
+                end
+                var store = self.Store.dump()
+                for p: ['LastFloodVol', 'SoilHPostFlood', 'SoilHPreFlood',
+                        'PrevFloodedVol', 'PrevSoilHPostFlood',
+                        'PrevSoilHPreFlood', 'PrevSoilMaxHymidity']
+                    msg = string.format(
+                              "{s}| Store.%s{m}%s{e}",
+                              p, store[p])
+                    tasmota.web_send_decimal(msg)
+                end
+            except .. as e
+                print("web_sensor: detail rows failed " .. e)
+            end
+        end
+
         try
             self.SoilSensors[1].web_sensor(self.DetailView)
         except .. as e
             print("web_sensor: soil2 row failed " .. e)
-        end
-
-        if self.SoilMaxHymidity != nil
-            try
-                msg = string.format(
-                        "{s}SoilHymidity1 max{m}%i{e}",
-                        self.SoilMaxHymidity)
-                if self.SoilMaxHymidityConfirmed
-                    msg += string.format(
-                            "{s}SoilHymidity1 max time{m}%s{e}",
-                            self._TimeStr(self.SoilMaxHymidityTime))
-                end
-                tasmota.web_send_decimal(msg)
-            except .. as e
-                print("web_sensor: max humidity row failed " .. e)
-            end
         end
 
         if self.LastFloodTime != nil
@@ -1225,18 +1240,6 @@ class Watering
             self.FlowSensors[0].web_sensor()
         except .. as e
             print("web_sensor: flow1 row failed " .. e)
-        end
-
-        try
-            var store = self.Store.dump()
-            for p: store.keys()
-                msg = string.format(
-                          "{s}Store.%s{m}%s{e}",
-                          p, store[p])
-                tasmota.web_send_decimal(msg)
-            end
-        except .. as e
-            print("web_sensor: store rows failed " .. e)
         end
 
         #print("web_sensor: processed")

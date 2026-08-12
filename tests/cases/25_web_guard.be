@@ -19,7 +19,8 @@ assert_true(string.find(joined, "Water used") >= 0, "flow row survived")
 
 section("web25_max_row_guarded")
 
-# SoilMaxHymidity with time triggers the guarded max-humidity section
+# SoilMaxHymidity with time triggers the guarded max-humidity section (detail view)
+wp1.DetailView = true
 wp1.SoilMaxHymidity = 810
 wp1.SoilMaxHymidityConfirmed = true
 wp1.SoilMaxHymidityTime = SIM['rtc_local']

@@ -144,20 +144,20 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `16_estimateflood` | Линейная оценка дозы по **Prev*** (последняя завершённая сессия); малая → nil (fallback); отсутствие данных → nil |
 | `17_pulseencode` | Кодировка MaxPumpRun в PulseTime по докам; clamp вместо raise для вне-диапазона |
 | `18_json_append` | Телеметрический JSON: поля, тернарий max-confirmed/nil |
-| `19_web_sensor` | Веб-строки: базовые ряды в сенсорех, ряд max-влажности |
+| `19_web_sensor` | Веб-строки: базовые ряды в сенсорех, ряд max-влажности (в detail-режиме) |
 | `20_persist_target` | Калибровка Dry/Wet через setmember пишет TargetDry/Wet через `Store.set` (debounced: значение сразу в persist-мапу, save по 15s-таймеру/flush); init восстанавливает raw-значения |
 | `21_flow_sensor` | FlowSensor: scale/Raw2Flow, измерение расхода (RawRate), сброс, member/setmember RateMeasuring, Rate=nil-ветка |
 | `22_session_end` | Завершение сессии: rule_flooded, _autoflood_end, timer_endfasttele, button_pressed, rule_button1 (запуск через start_flood при сухости, skip при влажной) |
 | `23_web_deinit` | web_add_main/config_button (HTML), deinit: снятие правил/cron/cmd, off насоса, `Store.flush(true)` (persist.save) |
 | `24_soil_sensor` | SoilSensor: init-поля из persist, EMA (сходимость/прилипание при малых Raw), статус N/C, Dry/Wet-пороги |
-| `25_web_guard` | web_sensor не обрезает вывод при падении Soil-блока (тип_error от nil): следующий soil, flow и max-столбцы живы |
+| `25_web_guard` | web_sensor не обрезает вывод при падении Soil-блока (тип_error от nil): следующий soil, flow и max-столбцы живы (detail-режим) |
 | `26_persist_reboot` | persist переживает BrRestart (deinit + Watering()): калибровка Dry/Wet (через Store, debounced + flush) и Prev*-статистика восстановлены; LastFloodVol дефолт 0; после ребута EMA ниже RawWet → start_flood скипает и доза не планируется (persist-данные не страдают) |
 | `27_soil_threshold` | RawDry/RawWet редактируются командами SoilDry/SoilWet и веб-аргами m_soildry/m_soilwet; валидация разрыва > 20; TargetDry/TargetWet через `Store.set` (debounced, flush); снятие команд в deinit |
 | `28_sensors_empty` | Загрузка когда read_sensors не отдаёт сенсоры (пустые map) — инициализация без краха |
 | `29_rule_power_helpers` | Хелперы OFF-ветки `rule_power`: `_compensate_backflow` (все 3 ветки: дельта выше/ниже backflow), `_record_flood` (накопление объёма, 2ч/24ч таймер, пере-арм), `_end_session_no_water`; полный проход OFF через `rule_power` |
 | `30_water_on_off` | Диспетчер `rule_power` → `water_on()`/`water_off()`: маршрутизация по State, старт на сухой, отмена на мокрой (без новой правит и без FinishRule), запись дозы в OFF, пустая сессия без таймера проверки, неизвестный State без краха |
 | `31_start_flood` | `start_flood()`: сухо → доза (default/оценка по Prev*) + Power1 1; влажно по EMA → skip без команды реле |
-| `32_persist_store` | `PersistStore`: load дефолты (800/760/0/nil), set по политикам debounced (Dirty+таймер+flush)/immediate/threshold (относительный, div-0 guard), flush clean=noop, save_batch (1 save), dump/команда Store/веб-таблица, deinit flush(true) |
+| `32_persist_store` | `PersistStore`: load дефолты (800/760/0/nil), set по политикам debounced (Dirty+таймер+flush)/immediate/threshold (относительный, div-0 guard), flush clean=noop, save_batch (1 save), dump/команда Store, веб-таблица Store.* только в detail (порядок тек.→пред. сессия, дубли TargetDry/Wet и SoilMax* исключены, в compact скрыта), deinit flush(true) |
 
 ## Полезное
 

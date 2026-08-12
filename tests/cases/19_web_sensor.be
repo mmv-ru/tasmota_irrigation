@@ -20,7 +20,8 @@ assert_true(string.find(joined, "Water used") >= 0, "flow water used")
 
 section("web_sensor_max_shown_when_confirmed")
 
-# when max humidity known, an extra row with value + time appears
+# when max humidity known and detail view on, an extra row with value + time appears
+wp1.DetailView = true
 wp1.SoilMaxHymidity = 840
 wp1.SoilMaxHymidityConfirmed = true
 wp1.SoilMaxHymidityTime = SIM['rtc_local']
