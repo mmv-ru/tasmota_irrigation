@@ -1,11 +1,11 @@
-.PHONY : clean push
+.PHONY : clean deploy
 
-push: .pyvenv
-	.pyvenv/bin/python3 push.py
+deploy: .pyvenv
+	.pyvenv/bin/python3 deploy.py
 
-.pyvenv : push.py_requirements.txt
+.pyvenv : deploy.py_requirements.txt
 	python3 -m venv --upgrade .pyvenv
-	.pyvenv/bin/pip --require-virtualenv install --upgrade -r push.py_requirements.txt
+	.pyvenv/bin/pip --require-virtualenv install --upgrade -r deploy.py_requirements.txt
 	echo .pyvenv Updated
 
 clean :
