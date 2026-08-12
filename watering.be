@@ -645,6 +645,8 @@ class Watering
             self.SoilMaxHymidityConfirmed = false
             self.SoilMaxHymidity = nil
             self.SoilMaxHymidityTime = nil
+            # Step 3: start the flood via the shared entry point (dry-check by EMA
+            # + planned dose + Power1 1). Same path as repeat flooding and button.
             self.start_flood()
         end
     end
