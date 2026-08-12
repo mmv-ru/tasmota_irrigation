@@ -20,8 +20,8 @@ flowchart TD
     subgraph AUTO_FLOOD["auto_flood() — планировщик"]
         EV_CRON --> AF_CHECK{"IsDry() && !AutofloodInProcess?"}
         AF_CHECK -- нет --> AF_SKIP[("ничего — ждать следующего часа")]
-        AF_CHECK -- да --> AF_SAVE["сохранить Prev*-статистику + входы estimate (persist.save)"]
-        AF_SAVE --> AF_EST["PlannedFlood = estimateflood()"]
+        AF_CHECK -- да --> AF_SAVE["сохранить Prev*-статистику + входы estimate партией _persist_batch (один save)"]
+        AF_SAVE --> AF_EST["PlannedFlood = planned_dose()"]
         AF_EST --> AF_EST_FAIL{"estimateflood() вернул значение?"}
         AF_EST_FAIL -- nil/мало --> AF_DEFAULT["PlannedFlood = Counter1FloodDefault"]
         AF_EST_FAIL -- да --> AF_KEEP["PlannedFlood = расчёт"]
@@ -57,21 +57,21 @@ flowchart TD
     subgraph RULE_OFF["rule_power() — ветка State==0 (стоп помпы)"]
         EV_PW_OFF --> ROFF_MILLIS["PumpRunMillis = now − PumpStartMillis (с защитой)"]
         ROFF_MILLIS --> ROFF_RULE["снять FinishRule"]
-        ROFF_RULE --> ROFF_DELTA["CounterDelta = Counter1 − Counter1BeforeStart"]
+        ROFF_RULE --> ROFF_DELTA["CounterDelta = _compensate_backflow(Counter1) — вычесть backflow из счётчика и дельты"]
         ROFF_DELTA --> ROFF_RATE["FlowSensor.RateMeasuring = false"]
         ROFF_RATE --> ROFF_COMP{"CounterDelta > Backflow?"}
-        ROFF_COMP -- да --> ROFF_BCK["counter1 −= Backflow; CounterDelta −= Backflow"]
-        ROFF_COMP -- нет --> ROFF_ZERO["counter1 −= CounterDelta; CounterDelta = 0"]
+        ROFF_COMP -- да --> ROFF_BCK["counter1 preset (С1−Backflow); CounterDelta −= Backflow"]
+        ROFF_COMP -- нет --> ROFF_ZERO["counter1 preset (С1BeforeStart); CounterDelta = 0"]
         ROFF_BCK --> ROFF_VOL{"CounterDelta > 0 (вода реально прошла)?"}
         ROFF_ZERO --> ROFF_VOL
-        ROFF_VOL -- да --> ROFF_REC["LastFloodTime=now, LastFloodVol += CounterDelta"]
+        ROFF_VOL -- да --> ROFF_REC["_record_flood(CounterDelta): LastFloodTime=now, LastFloodVol += CounterDelta"]
         ROFF_REC --> ROFF_DELAY{"LastFloodVol > MaxFlood/2?"}
         ROFF_DELAY -- да --> ROFF_24["flood_delay = 24ч (большая доза — ждать дольше)"]
         ROFF_DELAY -- нет --> ROFF_2["flood_delay = 2ч"]
-        ROFF_24 --> ROFF_TMR["set_timer(flood_delay → timer_soil_transition_after_flooded)"]
+        ROFF_24 --> ROFF_TMR["set_timer пере-армит ID_SOILTRANSITION_AFTERFLOOD → timer_soil_transition_after_flooded"]
         ROFF_2 --> ROFF_TMR
         ROFF_TMR --> ROFF_60S["set_timer(60с → timer_endfasttele_after_flooded: TelePeriod 300)"]
-        ROFF_VOL -- нет (вода не прошла) --> ROFF_EMPTY["PauseSoilMaxStat=false, AutofloodInProcess=false (сессия без воды)"]
+        ROFF_VOL -- нет (вода не прошла) --> ROFF_EMPTY["_end_session_no_water(): PauseSoilMaxStat=false, AutofloodInProcess=false (сессия без воды)"]
         ROFF_EMPTY --> ROFF_60S
     end
 
@@ -112,7 +112,7 @@ flowchart TD
         ES_PAUSE -- нет --> ES_MIN{"SoilMaxHymidity==nil или RawEma < текущий Max?"}
         ES_MIN -- да --> ES_NEWMIN["SoilMaxHymidity=RawEma (новый минимум), Confirmed=false, Time=now"]
         ES_MIN -- нет --> ES_CHK{"RawEma > SoilMaxHymidity+5 и !Confirmed?"}
-        ES_CHK -- да --> ES_CONF["SoilMaxHymidityConfirmed=true, persist.save (SoilMaxHymidity/Time)"]
+        ES_CHK -- да --> ES_CONF["SoilMaxHymidityConfirmed=true, _persist_batch(SoilMaxHymidity/Time) — один save"]
         ES_SKIP --> ES_DONE["конец тика"]
         ES_NEWMIN --> ES_DONE
         ES_CONF --> ES_DONE
@@ -127,9 +127,14 @@ flowchart TD
 
 | Метод | Роль в FSM |
 |-------|-----------|
-| `auto_flood()` | Планировщик: по cron (часы 14–01) проверяет сухость и запускает новую сессию; считает дозу через `estimateflood()` |
+| `auto_flood()` | Планировщик: по cron (часы 14–01) проверяет сухость и запускает новую сессию; дозу считает `planned_dose()`, Prev*-статистику + estimate-входы пишет партией `_persist_batch()` (один `persist.save()`) |
+| `planned_dose()` | Эффективная доза для нового запуска: `estimateflood()` если оценка валидна, иначе `Counter1FloodDefault` |
+| `_persist_batch(keys, source)` | Батч-запись в persist: цикл `introspect.set` + один `save()`; source по умолчанию `self`. Применяется в `auto_flood` (7 ключей) и `every_second` (SoilMaxHymidity/Time) |
 | `rule_power(ON)` | Старт: устанавливает FinishRule по счётчику, быстрая телеметрия, отмена висячего таймера; защита от запуска на мокрой почве |
-| `rule_power(OFF)` | Останов: компенсация backflow, фиксация объёма, планирование проверки результата (2ч/24ч) |
+| `rule_power(OFF)` | Останов: `_compensate_backflow()` для коррекции счётчика, затем `_record_flood()` (вода прошла) или `_end_session_no_water()` (нет воды) |
+| `_compensate_backflow(Counter1)` | Вычитает backflow из счётчика (preset `counter1`) и из дельты, возвращает нетто-объём воды |
+| `_record_flood(CounterDelta)` | Фиксирует дозу: `LastFloodVol += delta`, таймер проверки 2ч/24ч (`> MaxFlood/2`), пере-арм |
+| `_end_session_no_water()` | Помипа работала без воды: закрывает сессию без таймера проверки почвы |
 | `rule_flooded()` | Триггер лимита: счётчик достиг порога → `Power1 0` |
 | `timer_soil_transition_after_flooded()` | Оценка результата: если земля всё ещё сухая — повысить дозу (×1.2) и полить ещё раз; иначе завершить сессию |
 | `_autoflood_end()` | Завершение: сброс флагов, опциональный сброс счётчика (отложенный), восстановление слежения за Max |
@@ -144,7 +149,7 @@ flowchart TD
 | `AutofloodInProcess` | true — идёт сессия автополива (гоняется `auto_flood`, проверяется `IsDry`) |
 | `PauseSoilMaxStat` | true — слежение за минимумом влажности приостановлено (во время пролива и до завершения сессии) |
 | `Counter1ResetPostpone` | запрошен сброс счётчика, но отложен до конца сессии (чтобы не сбить статистику сессии) |
-| `PlannedFlood` | запланированный объём дозы (мл) для текущего запуска: `estimateflood()` или `Counter1FloodDefault` |
+| `PlannedFlood` | запланированный объём дозы (мл) для текущего запуска: `planned_dose()` = `estimateflood()` или `Counter1FloodDefault` |
 | `FinishRule` | активное правило `COUNTER#C1>=...`; снимается при остановке помпы |
 | `DetailView` | флаг веб-UI: детальный (33 ряда) или компактный (21-23 ряда) вывод `web_sensor()` |
 | `SoilMaxHymidityConfirmed` | подтверждено, что минимум влажности достигнут и пройден (+5); результат сохраняется в persist |
