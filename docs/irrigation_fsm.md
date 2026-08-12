@@ -1,7 +1,8 @@
 # Состояния и переходы алгоритма автополива (event-driven FSM)
 
 > Диаграмма отражает **текущую** логику `watering.be`. При изменении FSM-логики
-> (методы `auto_flood`, `rule_power`, `rule_flooded`,
+> (методы `auto_flood`, `rule_power`, `water_on`, `water_off`,
+> `rule_flooded`,
 > `timer_soil_transition_after_flooded`, `_autoflood_end`, `every_second`) —
 > обновлять эту схему, чтобы она не рассинхронизировалась с кодом.
 
@@ -31,9 +32,19 @@ flowchart TD
         PW_START --> EV_PW_ON
     end
 
-    %% ===================== rule_power ON =====================
-    subgraph RULE_ON["rule_power() — ветка State==1 (старт помпы)"]
-        EV_PW_ON --> RON_START["PumpStartMillis=now, Power1=1"]
+    %% ===================== rule_power диспетчер =====================
+    subgraph RULE_PWR["rule_power(value, trigger) — диспетчер по State"]
+        EV_PW_ON --> RPD_ON{"State == 1?"}
+        RPD_ON -- да --> RULE_ON_START["water_on()"]
+        EV_PW_OFF --> RPD_OFF{"State == 0?"}
+        RPD_OFF -- да --> RULE_OFF_START["water_off()"]
+        RPD_ON -- нет --> RPD_ELSE["WARNING: unexpected state"]
+        RPD_OFF -- нет --> RPD_ELSE
+    end
+
+    %% ===================== water_on =====================
+    subgraph RULE_ON["water_on() — старт помпы"]
+        RULE_ON_START --> RON_START["PumpStartMillis=now, Power1=1"]
         RON_START --> RON_WET{"IsWet() (почва уже мокрая)?"}
         RON_WET -- да --> RON_ABORT["Power1 0 — отмена, помпа не запускается"]
         RON_ABORT --> EV_PW_OFF
@@ -53,9 +64,10 @@ flowchart TD
         RFL_OFF --> EV_PW_OFF
     end
 
-    %% ===================== rule_power OFF =====================
-    subgraph RULE_OFF["rule_power() — ветка State==0 (стоп помпы)"]
-        EV_PW_OFF --> ROFF_MILLIS["PumpRunMillis = now − PumpStartMillis (с защитой)"]
+    %% ===================== water_off =====================
+    subgraph RULE_OFF["water_off() — стоп помпы"]
+        RULE_OFF_START --> ROFF_CNT["прочитать сенсоры: Counter1 = COUNTER#C1"]
+        ROFF_CNT --> ROFF_MILLIS["PumpRunMillis = now − PumpStartMillis (с защитой)"]
         ROFF_MILLIS --> ROFF_RULE["снять FinishRule"]
         ROFF_RULE --> ROFF_DELTA["CounterDelta = _compensate_backflow(Counter1) — вычесть backflow из счётчика и дельты"]
         ROFF_DELTA --> ROFF_RATE["FlowSensor.RateMeasuring = false"]
@@ -130,8 +142,9 @@ flowchart TD
 | `auto_flood()` | Планировщик: по cron (часы 14–01) проверяет сухость и запускает новую сессию; дозу считает `planned_dose()`, Prev*-статистику + estimate-входы пишет партией `_persist_batch()` (один `persist.save()`) |
 | `planned_dose()` | Эффективная доза для нового запуска: `estimateflood()` если оценка валидна, иначе `Counter1FloodDefault` |
 | `_persist_batch(keys, source)` | Батч-запись в persist: цикл `introspect.set` + один `save()`; source по умолчанию `self`. Применяется в `auto_flood` (7 ключей) и `every_second` (SoilMaxHymidity/Time) |
-| `rule_power(ON)` | Старт: устанавливает FinishRule по счётчику, быстрая телеметрия, отмена висячего таймера; защита от запуска на мокрой почве |
-| `rule_power(OFF)` | Останов: `_compensate_backflow()` для коррекции счётчика, затем `_record_flood()` (вода прошла) или `_end_session_no_water()` (нет воды) |
+| `rule_power(value, trigger)` | Диспетчер: по `State` (1/0) маршрутизирует событие POWER1 в `water_on()`/`water_off()`; неизвестный State — WARNING |
+| `water_on()` | Старт: защита от запуска на мокрой почве, устанавливает FinishRule по счётчику, быстрая телеметрия, отмена висячего таймера, RateMeasuring |
+| `water_off()` | Стоп: читает Counter1 из сенсоров, `_compensate_backflow()` для коррекции счётчика, затем `_record_flood()` (вода прошла) или `_end_session_no_water()` (нет воды), таймер возврата TelePeriod |
 | `_compensate_backflow(Counter1)` | Вычитает backflow из счётчика (preset `counter1`) и из дельты, возвращает нетто-объём воды |
 | `_record_flood(CounterDelta)` | Фиксирует дозу: `LastFloodVol += delta`, таймер проверки 2ч/24ч (`> MaxFlood/2`), пере-арм |
 | `_end_session_no_water()` | Помипа работала без воды: закрывает сессию без таймера проверки почвы |
@@ -156,6 +169,6 @@ flowchart TD
 
 ## Ключевой цикл самокоррекции
 
-`auto_flood → Power1 1 → rule_power(ON) → COUNTER превышен → rule_flooded → Power1 0 →
-rule_power(OFF) → таймер 2ч/24ч → timer_soil_transition_after_flooded →
+`auto_flood → Power1 1 → water_on() → COUNTER превышен → rule_flooded → Power1 0 →
+water_off() → таймер 2ч/24ч → timer_soil_transition_after_flooded →
 сухо? (доза ×1.2, повтор) : _autoflood_end → IDLE`

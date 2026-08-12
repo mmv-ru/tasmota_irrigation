@@ -446,7 +446,46 @@ class Watering
     end
 
     def rule_power(value, trigger)
-        import string
+        #print(string.format("value: %s trigger: %s", value, trigger))
+        if value['State'] == 1
+            self.water_on()
+        elif value['State'] == 0
+            self.water_off()
+        else
+            print("WARNING: Unexpected watering pump state ", value['State'])
+        end
+    end
+
+    def water_on()
+        self.PumpStartMillis = tasmota.millis()
+        print("Water pump ON")
+        self.Power1 = 1
+        if self.SoilSensors[0].IsWet()
+            print("Too wet to flood. Stop pump.")
+            tasmota.cmd("Power1 0")
+            return
+        end
+        tasmota.cmd("TelePeriod 10")
+        self.PauseSoilMaxStat = true
+        self.Counter1BeforeStart = self.FlowSensors[0].Raw
+        print("Counter: ", self.FlowSensors[0].Raw)
+        # A new flood while the previous "return to default teleperiod"
+        # timer is still pending would let it kill this session's fast
+        # telemetry mid-run. Cancel it here.
+        tasmota.remove_timer("ID_ENDFASTTELE")
+        if self.PlannedFlood
+            self.FinishRule = "COUNTER#C1>="..(self.FlowSensors[0].Raw+self.Counter1Backflow+self.PlannedFlood)
+        else
+            self.FinishRule = "COUNTER#C1>="..(self.FlowSensors[0].Raw+self.Counter1Backflow+self.Counter1FloodDefault)
+        end
+        print("Flooding FinishRule ", self.FinishRule)
+        tasmota.add_rule(self.FinishRule, / v, t -> self.rule_flooded(v, t))
+        print("Rule on ", self.FinishRule, " set")
+        # TODO: delay RateMeasuring when no check-valve
+        self.FlowSensors[0].RateMeasuring = true
+    end
+
+    def water_off()
         import json
         var sensors = json.load(tasmota.read_sensors())
         var Counter1 = 0
@@ -456,61 +495,29 @@ class Watering
                 Counter1 = counter['C1']
             end
         end
-        #print(string.format("value: %s trigger: %s", value, trigger))
-        if value['State'] == 1
-            self.PumpStartMillis = tasmota.millis()
-            print("Water pump ON")
-            self.Power1 = 1
-            if self.SoilSensors[0].IsWet()
-                print("Too wet to flood. Stop pump.")
-                tasmota.cmd("Power1 0")
-                return
-            end
-            tasmota.cmd("TelePeriod 10")
-            self.PauseSoilMaxStat = true
-            self.Counter1BeforeStart = self.FlowSensors[0].Raw
-            print("Counter: ", self.FlowSensors[0].Raw)
-            # A new flood while the previous "return to default teleperiod"
-            # timer is still pending would let it kill this session's fast
-            # telemetry mid-run. Cancel it here.
-            tasmota.remove_timer("ID_ENDFASTTELE")
-            if self.PlannedFlood
-                self.FinishRule = "COUNTER#C1>="..(self.FlowSensors[0].Raw+self.Counter1Backflow+self.PlannedFlood)
-            else
-                self.FinishRule = "COUNTER#C1>="..(self.FlowSensors[0].Raw+self.Counter1Backflow+self.Counter1FloodDefault)
-            end
-            print("Flooding FinishRule ", self.FinishRule)
-            tasmota.add_rule(self.FinishRule, / v, t -> self.rule_flooded(v, t))
-            print("Rule on ", self.FinishRule, " set")
-            # TODO: delay RateMeasuring when no check-valve
-            self.FlowSensors[0].RateMeasuring = true
-        elif value['State'] == 0
-            try
-                self.PumpRunMillis = tasmota.millis() - self.PumpStartMillis
-            except .. as e
-                log("Pump stop without run.", 1)
-            end
-            print("Water pump OFF")
-            self.Power1 = 0
-            if self.FinishRule
-                tasmota.remove_rule(self.FinishRule)
-                self.FinishRule = nil
-                print("Flooding FinishRule removed")
-            end
-            self.FlowSensors[0].RateMeasuring = false
-            var CounterDelta = self._compensate_backflow(Counter1)
-            print("Counter compensated: ", Counter1)
-            print("Water flooded ".. CounterDelta)
-            if CounterDelta > 0
-                self._record_flood(CounterDelta)
-            else
-                self._end_session_no_water()
-            end
-            tasmota.remove_timer("ID_ENDFASTTELE")
-            tasmota.set_timer(60*1000, /->self.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
-        else
-            print("WARNING: Unexpected watering pump state ", value['State'])
+        try
+            self.PumpRunMillis = tasmota.millis() - self.PumpStartMillis
+        except .. as e
+            log("Pump stop without run.", 1)
         end
+        print("Water pump OFF")
+        self.Power1 = 0
+        if self.FinishRule
+            tasmota.remove_rule(self.FinishRule)
+            self.FinishRule = nil
+            print("Flooding FinishRule removed")
+        end
+        self.FlowSensors[0].RateMeasuring = false
+        var CounterDelta = self._compensate_backflow(Counter1)
+        print("Counter compensated: ", Counter1)
+        print("Water flooded ".. CounterDelta)
+        if CounterDelta > 0
+            self._record_flood(CounterDelta)
+        else
+            self._end_session_no_water()
+        end
+        tasmota.remove_timer("ID_ENDFASTTELE")
+        tasmota.set_timer(60*1000, /->self.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
     end
 
     def _compensate_backflow(Counter1)

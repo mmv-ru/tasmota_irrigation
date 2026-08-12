@@ -155,6 +155,7 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `27_soil_threshold` | RawDry/RawWet редактируются командами SoilDry/SoilWet и веб-аргами m_soildry/m_soilwet; валидация разрыва > 20; persist TargetDry/TargetWet; снятие команд в deinit |
 | `28_sensors_empty` | Загрузка когда read_sensors не отдаёт сенсоры (пустые map) — инициализация без краха |
 | `29_rule_power_helpers` | Хелперы OFF-ветки `rule_power`: `_compensate_backflow` (все 3 ветки: дельта выше/ниже backflow), `_record_flood` (накопление объёма, 2ч/24ч таймер, пере-арм), `_end_session_no_water`; полный проход OFF через `rule_power` |
+| `30_water_on_off` | Диспетчер `rule_power` → `water_on()`/`water_off()`: маршрутизация по State, старт на сухой, отмена на мокрой (без новой правит и без FinishRule), запись дозы в OFF, пустая сессия без таймера проверки, неизвестный State без краха |
 
 ## Полезное
 
