@@ -441,7 +441,7 @@ class Watering
     def rule_button1(value, trigger)
         print(value, trigger)
         if value['Action'] == 'SINGLE' || value['Action'] == 'DOUBLE'
-            tasmota.set_power(0, !bool(self.Power1))
+            self.start_flood()
         end
     end
 
@@ -583,7 +583,7 @@ class Watering
                 self.Counter1FloodDefault = self.MaxFlood
                 print("Counter1FloodDefault capped at MaxFlood " .. self.MaxFlood)
             end
-            tasmota.cmd("Power1 1")
+            self.start_flood()
         else
             # Flooding session finished?
             print("Autofloood: Wet lewel reached. End flooding session")
@@ -605,6 +605,19 @@ class Watering
         print("Autofloood: finished")
     end
 
+    def start_flood()
+        # Planned flood dose + pump ON. Shared entry point for auto_flood, repeat
+        # flooding and the manual button. Only acts when the soil is actually dry
+        # by EMA, so a wet reading cannot turn the pump on.
+        if !(self.SoilSensors[0].RawEma > self.SoilSensors[0].RawWet)
+            print("start_flood: soil not dry (RawEma<=RawWet), skip")
+            return
+        end
+        # Effective dose: estimate if valid, else the default flood volume.
+        self.PlannedFlood = self.planned_dose()
+        tasmota.cmd("Power1 1")
+    end
+
     def auto_flood()
         print("Autoflood: AutofloodInProcess ", self.AutofloodInProcess)
         #print("Autoflood: Closure test Sensor ", self.SoilSensors[0])
@@ -613,8 +626,8 @@ class Watering
         if self.SoilSensors[0].IsDry() && !self.AutofloodInProcess
             print("Autoflood: scheduled start")
             # Save previous session stats and the last finished session's estimate
-            # inputs in one batch. Persisting the estimate inputs (SoilHPreFlood /
-            # LastFloodVol / SoilMaxHymidity) keeps estimateflood() working after
+            # inputs in one batch. Persisting the estimate inputs (PrevSoilHPreFlood /
+            # PrevFloodedVol / PrevSoilMaxHymidity) keeps estimateflood() working after
             # a reboot; otherwise they come back nil -> estimate returns nil ->
             # fallback to default. All keys are read from self via introspect.get.
             self.PrevSoilHPreFlood = self.SoilHPreFlood
@@ -625,9 +638,6 @@ class Watering
                    'PrevFloodedVol', 'PrevSoilHPostFlood',
                    'SoilHPreFlood', 'LastFloodVol', 'SoilMaxHymidity'], self)
 
-            # Effective dose: estimate if valid, else the default flood volume.
-            self.PlannedFlood = self.planned_dose()
-
             # Init new flood session
             self.LastFloodVol = 0
             self.AutofloodInProcess = true
@@ -635,7 +645,7 @@ class Watering
             self.SoilMaxHymidityConfirmed = false
             self.SoilMaxHymidity = nil
             self.SoilMaxHymidityTime = nil
-            tasmota.cmd("Power1 1")
+            self.start_flood()
         end
     end
 
@@ -643,9 +653,11 @@ class Watering
         try
             # при маленькой дозе полива, может оказаться что влажность не уменьшилась
             # тогда используемая линейная экстраполяция даст отрицательное значение полива!
-            var LastFloodDRaw = self.SoilHPreFlood - self.SoilMaxHymidity
+            # Оценка строится на последней завершённой сессии (Prev*), которая копируется
+            # из текущих полей до начала новой сессии и персистится при старте auto_flood.
+            var LastFloodDRaw = self.PrevSoilHPreFlood - self.PrevSoilMaxHymidity
             var CurDRaw = self.SoilSensors[0].RawEma - self.SoilSensors[0].RawWet
-            var EstimatedFlood = real(self.LastFloodVol)*CurDRaw/LastFloodDRaw
+            var EstimatedFlood = real(self.PrevFloodedVol)*CurDRaw/LastFloodDRaw
             if EstimatedFlood < 100
                 # estimate too small/negative for a meaningful dose -> nil (use default),
                 # not 0 (would falsely mean "no flooding needed")

@@ -1,7 +1,7 @@
 # Состояния и переходы алгоритма автополива (event-driven FSM)
 
 > Диаграмма отражает **текущую** логику `watering.be`. При изменении FSM-логики
-> (методы `auto_flood`, `rule_power`, `water_on`, `water_off`,
+> (методы `auto_flood`, `start_flood`, `rule_power`, `water_on`, `water_off`,
 > `rule_flooded`,
 > `timer_soil_transition_after_flooded`, `_autoflood_end`, `every_second`) —
 > обновлять эту схему, чтобы она не рассинхронизировалась с кодом.
@@ -21,15 +21,20 @@ flowchart TD
     subgraph AUTO_FLOOD["auto_flood() — планировщик"]
         EV_CRON --> AF_CHECK{"IsDry() && !AutofloodInProcess?"}
         AF_CHECK -- нет --> AF_SKIP[("ничего — ждать следующего часа")]
-        AF_CHECK -- да --> AF_SAVE["сохранить Prev*-статистику + входы estimate партией _persist_batch (один save)"]
-        AF_SAVE --> AF_EST["PlannedFlood = planned_dose()"]
-        AF_EST --> AF_EST_FAIL{"estimateflood() вернул значение?"}
-        AF_EST_FAIL -- nil/мало --> AF_DEFAULT["PlannedFlood = Counter1FloodDefault"]
-        AF_EST_FAIL -- да --> AF_KEEP["PlannedFlood = расчёт"]
-        AF_DEFAULT --> AF_INIT
-        AF_KEEP --> AF_INIT["инициализация сессии: LastFloodVol=0, AutofloodInProcess=true, SoilHPreFlood=RawEma, сброс Max/Confirmed/Time"]
-        AF_INIT --> PW_START["Power1 1"]
+        AF_CHECK -- да --> AF_SAVE["1) сохранить Prev*-статистику + входы estimate партией _persist_batch (один save)"]
+        AF_SAVE --> AF_INIT["2) init сессии: LastFloodVol=0, AutofloodInProcess=true, SoilHPreFlood=RawEma, сброс Max/Confirmed/Time"]
+        AF_INIT --> AF_START["3) start_flood()"]
+        AF_START --> PW_START["Power1 1"]
         PW_START --> EV_PW_ON
+    end
+
+    %% ===================== start_flood =====================
+    subgraph START_FLOOD["start_flood() — единая точка запуска (auto_flood / повтор / кнопка)"]
+        SF_ENTRY --> SF_DRY{"RawEma > RawWet — почва сухая по EMA?"}
+        SF_DRY -- нет --> SF_SKIP[("лог «soil not dry, skip» — помпа НЕ включается")]
+        SF_DRY -- да --> SF_PLAN["PlannedFlood = planned_dose()"]
+        SF_PLAN --> SF_PWR["Power1 1"]
+        SF_PWR --> EV_PW_ON
     end
 
     %% ===================== rule_power диспетчер =====================
@@ -92,7 +97,7 @@ flowchart TD
         EV_T_2H --> TSL_READ["SoilHPostFlood = Hymidity (послеполивная влажность)"]
         TSL_READ --> TSL_DRY{"Raw > (RawDry+RawWet)/2 — земля всё ещё сухая?"}
         TSL_DRY -- да (недостаточно) --> TSL_INC["Counter1FloodDefault × 1.2 (с капом MaxFlood)"]
-        TSL_INC --> TSL_REP["Power1 1 → повторный полив"]
+        TSL_INC --> TSL_REP["start_flood() → повторный полив (доза пересчитывается заново)"]
         TSL_REP --> EV_PW_ON
         TSL_DRY -- нет (достаточно) --> TSL_END["_autoflood_end()"]
     end
@@ -111,9 +116,8 @@ flowchart TD
 
     %% ===================== button =====================
     subgraph BTN["rule_button1()"]
-        EV_BTN --> BTN_TOG["set_power(0, !Power1) — ручной toggle помпы"]
-        BTN_TOG --> EV_PW_ON
-        BTN_TOG --> EV_PW_OFF
+        EV_BTN --> BTN_START["start_flood() — ручной запуск полива (без init-сессии)"]
+        BTN_START --> EV_PW_ON
     end
 
     %% ===================== every_second (фон) =====================
@@ -139,8 +143,10 @@ flowchart TD
 
 | Метод | Роль в FSM |
 |-------|-----------|
-| `auto_flood()` | Планировщик: по cron (часы 14–01) проверяет сухость и запускает новую сессию; дозу считает `planned_dose()`, Prev*-статистику + estimate-входы пишет партией `_persist_batch()` (один `persist.save()`) |
+| `auto_flood()` | Планировщик: по cron (часы 14–01) проверяет сухость и запускает новую сессию: 1) Prev*-статистика + estimate-входы партией `_persist_batch()` (один `persist.save()`), 2) init сессии, 3) `start_flood()` |
+| `start_flood()` | Единая точка запуска полива (auto_flood / повтор / кнопка): dry-check `RawEma > RawWet` (иначе skip), `PlannedFlood = planned_dose()`, `Power1 1` |
 | `planned_dose()` | Эффективная доза для нового запуска: `estimateflood()` если оценка валидна, иначе `Counter1FloodDefault` |
+| `estimateflood()` | Линейная экстраполяция на **Prev*** (`PrevSoilHPreFlood − PrevSoilMaxHymidity`, `PrevFloodedVol`); <100 или исключение → nil (fallback на default) |
 | `_persist_batch(keys, source)` | Батч-запись в persist: цикл `introspect.set` + один `save()`; source по умолчанию `self`. Применяется в `auto_flood` (7 ключей) и `every_second` (SoilMaxHymidity/Time) |
 | `rule_power(value, trigger)` | Диспетчер: по `State` (1/0) маршрутизирует событие POWER1 в `water_on()`/`water_off()`; неизвестный State — WARNING |
 | `water_on()` | Старт: защита от запуска на мокрой почве, устанавливает FinishRule по счётчику, быстрая телеметрия, отмена висячего таймера, RateMeasuring |
@@ -149,10 +155,10 @@ flowchart TD
 | `_record_flood(CounterDelta)` | Фиксирует дозу: `LastFloodVol += delta`, таймер проверки 2ч/24ч (`> MaxFlood/2`), пере-арм |
 | `_end_session_no_water()` | Помипа работала без воды: закрывает сессию без таймера проверки почвы |
 | `rule_flooded()` | Триггер лимита: счётчик достиг порога → `Power1 0` |
-| `timer_soil_transition_after_flooded()` | Оценка результата: если земля всё ещё сухая — повысить дозу (×1.2) и полить ещё раз; иначе завершить сессию |
+| `timer_soil_transition_after_flooded()` | Оценка результата: если земля всё ещё сухая — повысить дозу (×1.2) и полить ещё раз через `start_flood()`; иначе завершить сессию |
 | `_autoflood_end()` | Завершение: сброс флагов, опциональный сброс счётчика (отложенный), восстановление слежения за Max |
 | `every_second()` | Фон: обновление сенсоров и трекинг минимальной влажности (данные для `estimateflood` и следующего `auto_flood`) |
-| `rule_button1()` | Ручной toggle помпы (SINGLE/DOUBLE клик) |
+| `rule_button1()` | Ручной запуск полива через `start_flood()` (SINGLE/DOUBLE клик); init-сессию не делает |
 | `timer_endfasttele_after_flooded()` | Возврат TelePeriod 10→300 |
 
 ## Ключевые флаги-состояния
@@ -162,13 +168,13 @@ flowchart TD
 | `AutofloodInProcess` | true — идёт сессия автополива (гоняется `auto_flood`, проверяется `IsDry`) |
 | `PauseSoilMaxStat` | true — слежение за минимумом влажности приостановлено (во время пролива и до завершения сессии) |
 | `Counter1ResetPostpone` | запрошен сброс счётчика, но отложен до конца сессии (чтобы не сбить статистику сессии) |
-| `PlannedFlood` | запланированный объём дозы (мл) для текущего запуска: `planned_dose()` = `estimateflood()` или `Counter1FloodDefault` |
+| `PlannedFlood` | запланированный объём дозы (мл) для текущего запуска: `planned_dose()` = `estimateflood()` или `Counter1FloodDefault`; выставляется внутри `start_flood()` (пока `RawEma > RawWet`) |
 | `FinishRule` | активное правило `COUNTER#C1>=...`; снимается при остановке помпы |
 | `DetailView` | флаг веб-UI: детальный (33 ряда) или компактный (21-23 ряда) вывод `web_sensor()` |
 | `SoilMaxHymidityConfirmed` | подтверждено, что минимум влажности достигнут и пройден (+5); результат сохраняется в persist |
 
 ## Ключевой цикл самокоррекции
 
-`auto_flood → Power1 1 → water_on() → COUNTER превышен → rule_flooded → Power1 0 →
+`auto_flood → start_flood() → Power1 1 → water_on() → COUNTER превышен → rule_flooded → Power1 0 →
 water_off() → таймер 2ч/24ч → timer_soil_transition_after_flooded →
-сухо? (доза ×1.2, повтор) : _autoflood_end → IDLE`
+сухо? (доза ×1.2, повтор через start_flood()) : _autoflood_end → IDLE`

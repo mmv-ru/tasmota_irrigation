@@ -46,15 +46,21 @@ section("button_pressed_is_noop")
 wp1.button_pressed('', 0, '', nil)
 assert_true(true, "button_pressed noop runs")
 
-section("rule_button1_toggles_power")
+section("rule_button1_starts_flood")
 
-# rule_button1 toggles based on stored Power1 (updated by the POWER1 rule)
+# rule_button1 triggers start_flood(): dry soil -> relay ON
 SIM['cmds'] = list()
-wp1.Power1 = 0
+wp1.SoilSensors[0].RawWet = 750
+wp1.SoilSensors[0].RawEma = 850
 wp1.rule_button1({'Action': 'SINGLE'}, 'BUTTON1')
-assert_true(cmds_include("Power1 1"), "single press commands relay ON")
-wp1.Power1 = 1
+assert_true(cmds_include("Power1 1"), "single press starts flood when dry")
+
+section("rule_button1_skips_when_wet")
+
+# wet soil by EMA -> start_flood refuses, no relay command
+SIM['cmds'] = list()
+wp1.SoilSensors[0].RawEma = 700
 wp1.rule_button1({'Action': 'DOUBLE'}, 'BUTTON1')
-assert_true(cmds_include("Power1 0"), "double press commands relay OFF")
+assert_true(!cmds_include("Power1 1"), "double press does not start flood when wet")
 
 # ---------------- finished ----------------

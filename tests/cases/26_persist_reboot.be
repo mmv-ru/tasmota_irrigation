@@ -38,7 +38,10 @@ wp1.auto_flood()
 assert_true(persist.has('PrevSoilHPreFlood'), "PrevSoilHPreFlood written during auto_flood")
 assert_true(persist.has('SoilHPreFlood'), "SoilHPreFlood written during auto_flood")
 assert_true(persist.has('LastFloodVol'), "LastFloodVol written during auto_flood")
-assert_eq(wp1.PlannedFlood, 300, "estimate fallback default when data missing")
+# start_flood() dry-guard: right after reboot the EMA is still below RawWet
+# (seeded low, rising toward the sample), so the pump start is skipped and no
+# dose is planned yet. Persisted stats are unaffected.
+assert_eq(wp1.PlannedFlood, nil, "no plan while EMA below wet threshold")
 
 wp1.deinit()
 wp1 = Watering()
