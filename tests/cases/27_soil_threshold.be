@@ -13,14 +13,17 @@ var ss = wp1.SoilSensors[0]
 var saves0 = persist.saves
 SIM['cmnds']['SoilDry']('SoilDry', 0, '820', '')
 assert_eq(ss.RawDry, 820, "SoilDry cmd sets RawDry")
-assert_eq(persist.find('TargetDry'), 820, "SoilDry persists RawDry")
-assert_eq(persist.saves, saves0 + 1, "SoilDry saves once")
+assert_eq(persist.find('TargetDry'), 820, "SoilDry writes TargetDry to persist map")
+assert_eq(persist.saves, saves0, "SoilDry write debounced (no immediate save)")
+wp1.Store.flush()
+assert_eq(persist.saves, saves0 + 1, "flush saves SoilDry once")
 
 section("cmd_soilwet_sets_raw_and_persists")
 
 SIM['cmnds']['SoilWet']('SoilWet', 0, '760', '')
 assert_eq(ss.RawWet, 760, "SoilWet cmd sets RawWet")
-assert_eq(persist.find('TargetWet'), 760, "SoilWet persists RawWet")
+assert_eq(persist.find('TargetWet'), 760, "SoilWet writes TargetWet to persist map")
+assert_eq(persist.saves, saves0 + 1, "SoilWet write debounced (no immediate save)")
 
 section("cmd_rejects_close_values")
 

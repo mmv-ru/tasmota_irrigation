@@ -68,14 +68,16 @@ class SoilSensor: AbstractSensor
     var ScaleMaxRAW
     var Raw2mVScale
     var Hu_C
+    var Store
 
-    def init(Sensor)
+    def init(Sensor, store)
         self.SensorID = ['ANALOG', Sensor]
         self.Name = 'Soil%sHymidity'
         self.setScale(842, 1105)
         self.EMAN = 600
         self.RawDry = 800
         self.RawWet = 750
+        self.Store = store
         # https://docs.espressif.com/projects/esp-idf/en/release-v4.4/esp32/api-reference/peripherals/adc.html
         # V = D * Vmax / Dmax
         # Tasmota has ADC_ATTEN_DB_11
@@ -154,9 +156,13 @@ class SoilSensor: AbstractSensor
             return false
         end
         self.RawDry = r
-        import introspect
-        introspect.set(persist, 'TargetDry', self.RawDry)
-        persist.save()
+        if self.Store != nil
+            self.Store.set('TargetDry', self.RawDry)
+        else
+            import introspect
+            introspect.set(persist, 'TargetDry', self.RawDry)
+            persist.save()
+        end
         return true
     end
 
@@ -171,9 +177,13 @@ class SoilSensor: AbstractSensor
             return false
         end
         self.RawWet = r
-        import introspect
-        introspect.set(persist, 'TargetWet', self.RawWet)
-        persist.save()
+        if self.Store != nil
+            self.Store.set('TargetWet', self.RawWet)
+        else
+            import introspect
+            introspect.set(persist, 'TargetWet', self.RawWet)
+            persist.save()
+        end
         return true
     end
 
@@ -201,14 +211,22 @@ class SoilSensor: AbstractSensor
     def setmember(name, value)
         if name == 'Dry'
             self.RawDry = self.Hymidity2Raw(value)
-            import introspect
-            introspect.set(persist, 'TargetDry', self.RawDry)
-            persist.save()
+            if self.Store != nil
+                self.Store.set('TargetDry', self.RawDry)
+            else
+                import introspect
+                introspect.set(persist, 'TargetDry', self.RawDry)
+                persist.save()
+            end
         elif name == 'Wet'
             self.RawWet = self.Hymidity2Raw(value)
-            import introspect
-            introspect.set(persist, 'TargetWet', self.RawWet)
-            persist.save()
+            if self.Store != nil
+                self.Store.set('TargetWet', self.RawWet)
+            else
+                import introspect
+                introspect.set(persist, 'TargetWet', self.RawWet)
+                persist.save()
+            end
         else
             raise 'attribute_error', "the 'SoilSensor' object has no attribute '"..name.."'"
         end
@@ -385,6 +403,146 @@ class FlowSensor: AbstractSensor
     end
 end
 
+class PersistStore
+    # Centralised persist layer. Every key is registered once (default value,
+    # write policy, optional relative threshold). Cache holds the live value,
+    # Shadow the last value actually written to Flash. Writes are deferred via
+    # a dirty flag + 15s debounce timer unless the key's policy is immediate.
+    var Meta
+    var Cache
+    var Shadow
+    var Dirty
+    var DebounceMs
+    var TimerId
+
+    def init()
+        self.Meta = {}
+        self.Cache = {}
+        self.Shadow = {}
+        self.Dirty = false
+        self.DebounceMs = 15000
+        self.TimerId = "ID_PERSIST_SAVE"
+
+        self.register('TargetDry', {'default': '800', 'policy': 'debounced'})
+        self.register('TargetWet', {'default': '760', 'policy': 'debounced'})
+        self.register('LastFloodVol', {'default': '0', 'policy': 'debounced'})
+        self.register('SoilHPreFlood', {'default': nil, 'policy': 'debounced'})
+        self.register('SoilHPostFlood', {'default': nil, 'policy': 'debounced'})
+        self.register('SoilMaxHymidity', {'default': nil, 'policy': 'debounced'})
+        self.register('SoilMaxHymidityTime', {'default': nil, 'policy': 'debounced'})
+        self.register('PrevSoilMaxHymidity', {'default': nil, 'policy': 'debounced'})
+        self.register('PrevSoilHPreFlood', {'default': nil, 'policy': 'debounced'})
+        self.register('PrevFloodedVol', {'default': nil, 'policy': 'debounced'})
+        self.register('PrevSoilHPostFlood', {'default': nil, 'policy': 'debounced'})
+    end
+
+    def register(name, meta)
+        self.Meta[name] = meta
+        self.Cache[name] = meta.find('default', nil)
+        self.Shadow[name] = meta.find('default', nil)
+    end
+
+    def get(name)
+        return self.Cache.find(name, nil)
+    end
+
+    def set(name, value)
+        # Update the live cache and the in-memory persist map immediately;
+        # the physical save() to Flash is deferred per the key's policy.
+        import introspect
+        self.Cache[name] = value
+        introspect.set(persist, name, value)
+        var meta = self.Meta.find(name, {'policy': 'debounced', 'thr': nil})
+        var policy = meta.find('policy', 'debounced')
+        if policy == 'immediate'
+            self.flush(true)
+        elif policy == 'threshold'
+            var thr = meta.find('thr', nil)
+            if thr != nil && self._big_change(name, value, thr)
+                self.flush(true)
+            else
+                self._mark_dirty()
+            end
+        else
+            # debounced (default): mark dirty, the 15s timer does the save
+            self._mark_dirty()
+        end
+    end
+
+    def _mark_dirty()
+        self.Dirty = true
+        tasmota.remove_timer(self.TimerId)
+        tasmota.set_timer(self.DebounceMs, /-> self.flush(), self.TimerId)
+    end
+
+    def _big_change(name, value, thr)
+        # Relative change vs. the last flushed value, guarding div-by-zero.
+        import math
+        var old = real(self.Shadow.find(name, self.get(name)))
+        var newv = real(value)
+        var delta = math.abs(newv - old)
+        var base = old
+        if base == 0
+            base = newv
+        end
+        if base == 0
+            return false
+        end
+        return delta / base >= thr
+    end
+
+    def flush(force)
+        # Write all registered keys in one save; Shadow tracks what is on Flash.
+        # Keys whose live value is nil are left untouched in persist (they were
+        # never written, and writing nil would clear a stored value on boot).
+        if !self.Dirty && force != true
+            return
+        end
+        import introspect
+        for p: self.Meta.keys()
+            var v = self.Cache.find(p, nil)
+            if v != nil
+                introspect.set(persist, p, v)
+            end
+            self.Shadow[p] = v
+        end
+        persist.save()
+        self.Dirty = false
+        tasmota.remove_timer(self.TimerId)
+    end
+
+    def save_batch(names, source)
+        # Persist a group of keys in one pass (values read from source via
+        # introspect.get, source defaults to self) and save once.
+        source = source != nil ? source : self
+        import introspect
+        for p: names
+            var v = introspect.get(source, p, nil)
+            self.Cache[p] = v
+            introspect.set(persist, p, v)
+        end
+        self.flush(true)
+    end
+
+    def load()
+        # Restore Cache/Shadow from persist, falling back to registered defaults.
+        for p: self.Meta.keys()
+            var d = self.Meta[p].find('default', nil)
+            self.Cache[p] = persist.find(p, d)
+            self.Shadow[p] = self.Cache[p]
+        end
+    end
+
+    def dump()
+        # name -> live value snapshot (for the Store command and the web table).
+        var r = {}
+        for p: self.Meta.keys()
+            r[p] = self.Cache.find(p, nil)
+        end
+        return r
+    end
+end
+
 
 
 
@@ -425,6 +583,7 @@ class Watering
     var DetailView
     var TimeCacheKey
     var TimeCache
+    var Store
 
 
     def button_pressed(cmd, idx, payload, raw)
@@ -634,7 +793,7 @@ class Watering
             self.PrevSoilHPostFlood = self.SoilHPostFlood
             self.PrevFloodedVol = self.LastFloodVol
             self.PrevSoilMaxHymidity = self.SoilMaxHymidity
-            self._persist_batch(['PrevSoilMaxHymidity', 'PrevSoilHPreFlood',
+            self.Store.save_batch(['PrevSoilMaxHymidity', 'PrevSoilHPreFlood',
                    'PrevFloodedVol', 'PrevSoilHPostFlood',
                    'SoilHPreFlood', 'LastFloodVol', 'SoilMaxHymidity'], self)
 
@@ -681,17 +840,6 @@ class Watering
         return est != nil ? est : self.Counter1FloodDefault
     end
 
-    def _persist_batch(keys, source)
-        # Write a batch of keys to persist in one pass and save once.
-        # source defaults to self (values read via introspect.get).
-        source = source != nil ? source : self
-        import introspect
-        for p: keys
-            introspect.set(persist, p, introspect.get(source, p, nil))
-        end
-        persist.save()
-    end
-
     def pulseencode(time)
         #- https://tasmota.github.io/docs/Commands/#pulsetime -#
         if time < 0
@@ -736,6 +884,8 @@ class Watering
         print("Init Watering object")
         print("imported", tasmota)
         self.BootInitTries = 0
+        self.Store = PersistStore()
+        self.Store.load()
         self.init_sensors()
     end
 
@@ -767,10 +917,10 @@ class Watering
         self.Conf_Toggle = 0
 
         print("Init sensors")
-        self.SoilSensors = [SoilSensor('A1'), SoilSensor('A2')]
-        self.SoilSensors[0].RawDry = int(persist.find("TargetDry", "800"))
-        self.SoilSensors[0].RawWet = int(persist.find("TargetWet", "760"))
-        self.LastFloodVol = int(persist.find("LastFloodVol", "0"))
+        self.SoilSensors = [SoilSensor('A1', self.Store), SoilSensor('A2', self.Store)]
+        self.SoilSensors[0].RawDry = int(self.Store.get('TargetDry'))
+        self.SoilSensors[0].RawWet = int(self.Store.get('TargetWet'))
+        self.LastFloodVol = int(self.Store.get('LastFloodVol'))
         self.FlowSensors = [FlowSensor('C1'), FlowSensor('C2')]
         print("Sensors initialized")
 
@@ -778,8 +928,8 @@ class Watering
                 'SoilMaxHymidity', 'SoilMaxHymidityTime',
                 'PrevSoilMaxHymidity',
                 'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
-            print('Persist restore - ', p, ': ', persist.find(p, nil))
-            introspect.set(self, p, persist.find(p, nil))
+            print('Persist restore - ', p, ': ', self.Store.get(p))
+            introspect.set(self, p, self.Store.get(p))
         end
 
         self.MaxPumpRun = 60
@@ -850,10 +1000,17 @@ class Watering
             end
         end)
         print("Commands SoilDry/SoilWet initialized")
+        tasmota.remove_cmd("Store")
+        tasmota.add_cmd("Store", def ()
+            import json
+            tasmota.resp_cmnd_str(json.dump(self.Store.dump()))
+        end)
+        print("Command Store initialized")
     end
 
     def deinit()
-        persist.save()
+        self.Store.flush(true)
+        tasmota.remove_timer("ID_PERSIST_SAVE")
         tasmota.remove_rule("POWER1")
         tasmota.remove_rule("BUTTON1")
         tasmota.remove_cron("auto_flood")
@@ -863,6 +1020,7 @@ class Watering
         tasmota.remove_cmd("autoflood")
         tasmota.remove_cmd("SoilDry")
         tasmota.remove_cmd("SoilWet")
+        tasmota.remove_cmd("Store")
         tasmota.cmd("Power1 0")
         if self.FinishRule
             tasmota.remove_rule(self.FinishRule)
@@ -901,7 +1059,7 @@ class Watering
         if self.SoilMaxHymidity &&  !self.SoilMaxHymidityConfirmed && self.SoilSensors[0].RawEma > self.SoilMaxHymidity + 5
             print("SoilMaxHymidityConfirmed")
             self.SoilMaxHymidityConfirmed = true
-            self._persist_batch(['SoilMaxHymidity', 'SoilMaxHymidityTime'])
+            self.Store.save_batch(['SoilMaxHymidity', 'SoilMaxHymidityTime'])
         end
 
         #print("every_second: processed")
@@ -1067,6 +1225,18 @@ class Watering
             self.FlowSensors[0].web_sensor()
         except .. as e
             print("web_sensor: flow1 row failed " .. e)
+        end
+
+        try
+            var store = self.Store.dump()
+            for p: store.keys()
+                msg = string.format(
+                          "{s}Store.%s{m}%s{e}",
+                          p, store[p])
+                tasmota.web_send_decimal(msg)
+            end
+        except .. as e
+            print("web_sensor: store rows failed " .. e)
         end
 
         #print("web_sensor: processed")

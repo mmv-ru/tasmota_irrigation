@@ -21,7 +21,7 @@ flowchart TD
     subgraph AUTO_FLOOD["auto_flood() — планировщик"]
         EV_CRON --> AF_CHECK{"IsDry() && !AutofloodInProcess?"}
         AF_CHECK -- нет --> AF_SKIP[("ничего — ждать следующего часа")]
-        AF_CHECK -- да --> AF_SAVE["1) сохранить Prev*-статистику + входы estimate партией _persist_batch (один save)"]
+        AF_CHECK -- да --> AF_SAVE["1) сохранить Prev*-статистику + входы estimate партией Store.save_batch (один save)"]
         AF_SAVE --> AF_INIT["2) init сессии: LastFloodVol=0, AutofloodInProcess=true, SoilHPreFlood=RawEma, сброс Max/Confirmed/Time"]
         AF_INIT --> AF_START["3) start_flood()"]
         AF_START --> PW_START["Power1 1"]
@@ -128,7 +128,7 @@ flowchart TD
         ES_PAUSE -- нет --> ES_MIN{"SoilMaxHymidity==nil или RawEma < текущий Max?"}
         ES_MIN -- да --> ES_NEWMIN["SoilMaxHymidity=RawEma (новый минимум), Confirmed=false, Time=now"]
         ES_MIN -- нет --> ES_CHK{"RawEma > SoilMaxHymidity+5 и !Confirmed?"}
-        ES_CHK -- да --> ES_CONF["SoilMaxHymidityConfirmed=true, _persist_batch(SoilMaxHymidity/Time) — один save"]
+        ES_CHK -- да --> ES_CONF["SoilMaxHymidityConfirmed=true, Store.save_batch(SoilMaxHymidity/Time) — один save"]
         ES_SKIP --> ES_DONE["конец тика"]
         ES_NEWMIN --> ES_DONE
         ES_CONF --> ES_DONE
@@ -143,11 +143,11 @@ flowchart TD
 
 | Метод | Роль в FSM |
 |-------|-----------|
-| `auto_flood()` | Планировщик: по cron (часы 14–01) проверяет сухость и запускает новую сессию: 1) Prev*-статистика + estimate-входы партией `_persist_batch()` (один `persist.save()`), 2) init сессии, 3) `start_flood()` |
+| `auto_flood()` | Планировщик: по cron (часы 14–01) проверяет сухость и запускает новую сессию: 1) Prev*-статистика + estimate-входы партией `Store.save_batch()` (один `persist.save()`), 2) init сессии, 3) `start_flood()` |
 | `start_flood()` | Единая точка запуска полива (auto_flood / повтор / кнопка): dry-check `RawEma > RawWet` (иначе skip), `PlannedFlood = planned_dose()`, `Power1 1` |
 | `planned_dose()` | Эффективная доза для нового запуска: `estimateflood()` если оценка валидна, иначе `Counter1FloodDefault` |
 | `estimateflood()` | Линейная экстраполяция на **Prev*** (`PrevSoilHPreFlood − PrevSoilMaxHymidity`, `PrevFloodedVol`); <100 или исключение → nil (fallback на default) |
-| `_persist_batch(keys, source)` | Батч-запись в persist: цикл `introspect.set` + один `save()`; source по умолчанию `self`. Применяется в `auto_flood` (7 ключей) и `every_second` (SoilMaxHymidity/Time) |
+| `Store.save_batch(keys, source)` | Батч-запись в persist через `PersistStore`: цикл `introspect.set` + один `save()` (flush); source по умолчанию `self`. Применяется в `auto_flood` (7 ключей) и `every_second` (SoilMaxHymidity/Time) |
 | `rule_power(value, trigger)` | Диспетчер: по `State` (1/0) маршрутизирует событие POWER1 в `water_on()`/`water_off()`; неизвестный State — WARNING |
 | `water_on()` | Старт: защита от запуска на мокрой почве, устанавливает FinishRule по счётчику, быстрая телеметрия, отмена висячего таймера, RateMeasuring |
 | `water_off()` | Стоп: читает Counter1 из сенсоров, `_compensate_backflow()` для коррекции счётчика, затем `_record_flood()` (вода прошла) или `_end_session_no_water()` (нет воды), таймер возврата TelePeriod |
