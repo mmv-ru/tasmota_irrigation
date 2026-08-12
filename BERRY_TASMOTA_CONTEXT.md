@@ -129,3 +129,13 @@ tasmota.add_cmd('SetMyRelay', my_cmd)
 - **EMA** (`EMAN=600`): `k=2/(N+1)`, `RawEma_new = RawEma_old*(1-k) + Raw*k`; инициализация `RawEma = Raw` при первом тике. Функция `EMA()` в начале watering.be.
 - **Наблюдаемый артефакт (приемлемый)**: в InfluxDB кривая EMA огибает кривую RAW СВЕРХУ со смещением +1..+2. Возможные причины: округления, дискретность отчётов (раз в 5 мин попадает на заниженное значение), помехи питания. **Пользователя смещение устраивает — не оптимизировать, не «чинить».**
 - ADC: `Raw2mVScale` из делителя 30k/30k (≈1.197 mV/source), полином `Hu_C` — недоделка.
+
+### 🔄 FSM автополива (event-driven) — КРАТКОЕ РЕЗЮМЕ
+- **Планировщик**: `auto_flood()` по cron (часы 14–01) — если `IsDry()` и не идёт сессия → сохраняет Prev*-статистику, считает дозу `estimateflood()` (иначе `Counter1FloodDefault`), инициализирует сессию, `Power1 1`.
+- **Старт** (`rule_power(ON)`): защита от запуска на мокрой почве (`IsWet()` → `Power1 0`), TelePeriod 10, `FinishRule = COUNTER#C1 >= before+backflow+доза`, `RateMeasuring=true`.
+- **Лимит** (`rule_flooded`): превышен счётчик → `Power1 0`.
+- **Стоп** (`rule_power(OFF)`): компенсация backflow, `LastFloodVol += CounterDelta`, задержка проверки 2ч (24ч при `LastFloodVol > MaxFlood/2`), таймер возврата TelePeriod 300 через 60с.
+- **Проверка результата** (`timer_soil_transition_after_flooded`, через 2ч/24ч): земля всё ещё сухая → `Counter1FloodDefault × 1.2` (cap `MaxFlood`) и повторный полив; иначе `_autoflood_end()`.
+- **Завершение** (`_autoflood_end`): сброс флагов, опциональный отложенный сброс счётчика (`Counter1ResetPostpone`), `PauseSoilMaxStat=false`.
+- **Фон** (`every_second`, 1/с): `read_sensors` → Update сенсоров; трекинг минимума `SoilMaxHymidity` (кроме периода `PauseSoilMaxStat`), подтверждение после роста +5 с `persist.save`.
+- **Полная блоксхема**: `docs/irrigation_fsm.md` (mermaid + таблица методов/флагов + цикл самокоррекции). Обновлять её при изменении FSM-логики в `watering.be`.
