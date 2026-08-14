@@ -36,7 +36,18 @@ class Tasmota:
     def uploadfile(self, filename):
         """ Upload program file """
         print(f"Uploading '{filename}'")
-        url_upload = 'http://{}/ufsu'.format(self.tasmota_host)
+        # Tasmota keeps Web.upload_file_type (default UPL_TASMOTA) in a global.
+        # Only a file-manager page render (GET /ufsd) sets it to UPL_UFSFILE;
+        # the file-download branch (GET /ufsd?download=) returns early and does
+        # NOT. A direct POST /ufsu while the global is still UPL_TASMOTA is
+        # rejected as "Invalid file signature" (magic byte 0xE9 check) and the
+        # file is left untouched. Render the file manager page first so the
+        # upload is always accepted.
+        init = self.session.get(f'http://{self.tasmota_host}/ufsd')
+        init.raise_for_status()
+        with open(filename, 'rb') as f:
+            size = len(f.read())
+        url_upload = 'http://{}/ufsu?fsz={}'.format(self.tasmota_host, size)
         with open(filename, 'rb') as f:
             files = {'file': f}
             response = self.session.post(url_upload, files=files)
