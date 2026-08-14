@@ -5,8 +5,8 @@ import json
 section("web_sensor_no_args")
 
 SIM['websend'] = list()
-wp1.SoilMaxHymidity = nil
-wp1.LastFloodTime = nil
+wp1.plants[0].SoilMaxHymidity = nil
+wp1.plants[0].LastFloodTime = nil
 wp1.web_sensor()
 
 assert_true(SIM['websend'].size() >= 4, "base rows emitted for both soil + flow sensors")
@@ -22,9 +22,8 @@ section("web_sensor_max_shown_when_confirmed")
 
 # when max humidity known and detail view on, an extra row with value + time appears
 wp1.DetailView = true
-wp1.SoilMaxHymidity = 840
-wp1.SoilMaxHymidityConfirmed = true
-wp1.SoilMaxHymidityTime = SIM['rtc_local']
+wp1.plants[0].SoilMaxHymidity = 840
+wp1.plants[0].SoilMaxHymidityTime = SIM['rtc_local']
 SIM['websend'] = []
 wp1.web_sensor()
 var j2 = ""

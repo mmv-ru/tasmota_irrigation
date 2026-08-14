@@ -2,6 +2,8 @@
 
 Характеризационные тесты логики полива. Запускаются на **локальном интерпретаторе Berry** (без железа), Tasmota-API эмулируется стабом. Цель — зафиксировать текущее поведение (`rule_power`, `auto_flood`, таймеры) до будущего рефакторинга: если после правок тесты станут красными — поведение изменилось.
 
+Актуальный набор покрывает **итерацию 2 (многоканальность)**: `Watering`-диспетчер + `Plant` на канал (свой насос `Power{Num}`, per-channel persist `P{Num}_*`, сериализация общего счётчика C1). Сводка на текущий момент: **454 PASS / 0 FAIL** (кейсы 00–40).
+
 ## Как запустить
 
 ```sh
@@ -96,13 +98,34 @@ cmds_include("Power1 1")    # была ли в истории команд по�
 `wp1` — глобальное Water из boot-секции `watering.be` (создался при сборке). Вызывайте его методы напрямую:
 
 ```berry
-wp1.rule_power({'State': 1}, 'POWER1')            # событие реле
-wp1.auto_flood()                                  # крон
+wp1.rule_power({'State': 1}, 'POWER1')            # событие реле канала 1 (диспетчер по PowerMap)
+wp1.auto_flood()                                  # sweep-планировщик (round-robin по каналам)
 wp1.every_second()
 wp1.pulseencode(60)                               # чистая функция
 ```
 
-Таймеры не «тикают» сами — их зарегистрированные колбэки в `SIM['timers']` можно вызывать вручную или проверять по `id`.
+### Доступ к каналам (`wp1.plants[i]`) — ВАЖНО (баг Berry 1.1.0)
+
+`wp1.plants` — список каналов (`Plant`): `wp1.plants[0]`, `wp1.plants[1]`, …
+
+**Не пишите цепочки `wp1.plants[0].X` в top-level коде теста** — на stock Berry 1.1.0
+(global → member-список → индекс → member) это падает `index_error: list index out of range`
+после накопления мусора/персист-записей (зафиксировано в тестах 32/33). Обязательно хойстите
+в локальную переменную и переобъявляйте её после пересоздания `wp1`:
+
+```berry
+var P1 = wp1.plants[0]        # локальная ссылка на канал 1
+P1.SoilMaxHymidity = nil      # OK
+assert_eq(P1.Preset.Type, 'dry', "...")
+
+wp1 = Watering()              # пересоздание (reboot) — обновите и ссылку:
+var P1 = wp1.plants[0]
+```
+
+Внутри методов классов (`self.plants[0].X`) баг не проявляется; безопасны и `wp1.Store.method(...)`,
+и `wp1.SoilSensors[0].Update(...)` (цепочка global → member, без индекса посредине).
+
+Таймеры не «тикают» сами — их зарегистрированные колбэки в `SIM['timers']` можно вызывать вручную или проверять по `id`. Имена таймеров каналов — `ID_SOILTRANSITION_AFTERFLOOD_P{Num}` (счётчик единый).
 
 ### Пример кейса
 
@@ -138,7 +161,7 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `10_rule_power_on` | ON на сухой почве: флаги, FinishRule, быстрая телеметрия, PulseTime |
 | `11_rule_power_on_wet` | ON на мокрой: стоп, и OFF без протекания счётчика не даст краша (Counter1BeforeStart инициализирован в init) |
 | `12_flood_cycle` | Полный цикл: ON → счётчик набрал → rule_flooded → OFF с компенсацией → таймеры 2ч/1м |
-| `13_auto_flood` | Старт по расписанию на сухой; пропуск при влажной/в работе; estimate подхватывается |
+| `13_auto_flood` | Старт по расписанию на сухой; пропуск при влажной/в работе; estimate подхватывается. Многоканально: sweep round-robin стартует ровно один due-канал; при чужом включённом реле (`_flooding_plant() != nil`) sweep пропускается |
 | `14_timer_soil_transition` | После паузы: повторная проливка при сухой (xxx1.2) либо завершение сессии при мокрой |
 | `15_every_second` | Отслеживание минимальной влажности, подтверждение после роста, пауза |
 | `16_estimateflood` | Линейная оценка дозы по **Prev*** (последняя завершённая сессия); малая → nil (fallback); отсутствие данных → nil |
@@ -157,7 +180,15 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `29_rule_power_helpers` | Хелперы OFF-ветки `rule_power`: `_compensate_backflow` (все 3 ветки: дельта выше/ниже backflow), `_record_flood` (накопление объёма, 2ч/24ч таймер, пере-арм), `_end_session_no_water`; полный проход OFF через `rule_power` |
 | `30_water_on_off` | Диспетчер `rule_power` → `water_on()`/`water_off()`: маршрутизация по State, старт на сухой, отмена на мокрой (без новой правит и без FinishRule), запись дозы в OFF, пустая сессия без таймера проверки, неизвестный State без краха |
 | `31_start_flood` | `start_flood()`: сухо → доза (default/оценка по Prev*) + Power1 1; влажно по EMA → skip без команды реле |
-| `32_persist_store` | `PersistStore`: load дефолты (800/760/0/nil), set по политикам debounced (Dirty+таймер+flush)/immediate/threshold (относительный, div-0 guard), flush clean=noop, save_batch (1 save), dump/команда Store, веб-таблица Store.* только в detail (порядок тек.→пред. сессия, дубли TargetDry/Wet и SoilMax* исключены, в compact скрыта), deinit flush(true) |
+| `32_persist_store` | `PersistStore`: `register_channel` ×4 = 72 ключа (`P1*`..`P4*`); load дефолты, set по политикам debounced (Dirty+таймер+flush)/immediate/threshold (относительный, div-0 guard), flush clean=noop, `save_batch_entries` (список пар `[P{Num}ключ, value]`, один save), dump/команда Store с `P1*`, веб-таблица `Store.P1*` только в detail (порядок тек.→пред. сессия, дубли TargetDry/Wet и SoilMax* исключены, в compact скрыта), `d.size() >= 18` после сессии, deinit flush(true) |
+| `33_dry_soak` | Сухая замочка (пресет `dry`, `FloodPreset('dry', wp1.Store, wp1.plants[0].Prefix)` — префикс канала): пик при RawEma>P1DryThreshold с дозой SoakStartDose и без записи Prev*-статов; `_record_flood` → DryDailyTicks + каденс SoakInterval; тренд: repeat до заполнения окна, эскалация ×1.2 (кап SoakMaxDose) при нет-отклике, hold при росте влажности, DailyCap-пауза, stop при RawEma<StopRaw (сессия закрыта, Prev* чисты); `every_second` не трекает SoilMaxHymidity при dry; команда `DrySoak` (status/start через `request_manual`); `P1DryThreshold` восстанавливается после ребута |
+| `34_…` | (резерв, свободен) |
+| `35_sequential` | Sweep round-robin по каналам: стартует ровно один due-канал, в один момент времени включено не более одного реле (`Power1`/`Power2` взаимоисключающие), wrap с 4-го канала на 1-й |
+| `36_shared_counter` | Сериализация общего C1: повтор/ручной запуск при чужом реле ON блокируется (retry-пере-арм soil-таймера, 60с); `request_manual` → `start_flood` НЕ ставит `AutofloodInProcess` (в отличие от `start_session`); эскалация `PlannedFlood` (default ×1.2 → 360 → 432) |
+| `37_plant_reboot` | Per-channel persist изоляция: ключи `P{Num}*` сохраняются/восстанавливаются по каналам после BrRestart (deinit + Watering()); общий Store с register_channel ×4; параметры канала не перетекают в соседние |
+| `38_plant_drysoak` | Dry-пресет на канале 2: per-channel `P2DryThreshold`/дозы, dry-сессия 2-го канала не трогает статы/трекинг 1-го; префикс источника партий в `save_batch_entries` |
+| `39_flood_timecap` | Аппаратный кап времени на канал: `PulseTime1..4` из `MaxPumpRun` при init; finish-правило на общем счётчике C1 (Counter1BeforeStart+backflow+доза) |
+| `40_sweep_repeat` | Sweep стартует ровно один due-канал; repeat при занятом общем счётчике (чужое реле) откладывается; wet-завершение закрывает сессию (`_autoflood_end`, без повторного полива) |
 
 ## Полезное
 

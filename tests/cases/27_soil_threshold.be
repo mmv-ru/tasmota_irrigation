@@ -13,7 +13,7 @@ var ss = wp1.SoilSensors[0]
 var saves0 = persist.saves
 SIM['cmnds']['SoilDry']('SoilDry', 0, '820', '')
 assert_eq(ss.RawDry, 820, "SoilDry cmd sets RawDry")
-assert_eq(persist.find('TargetDry'), 820, "SoilDry writes TargetDry to persist map")
+assert_eq(persist.find('P1TargetDry'), 820, "SoilDry writes TargetDry to persist map")
 assert_eq(persist.saves, saves0, "SoilDry write debounced (no immediate save)")
 wp1.Store.flush()
 assert_eq(persist.saves, saves0 + 1, "flush saves SoilDry once")
@@ -22,7 +22,7 @@ section("cmd_soilwet_sets_raw_and_persists")
 
 SIM['cmnds']['SoilWet']('SoilWet', 0, '760', '')
 assert_eq(ss.RawWet, 760, "SoilWet cmd sets RawWet")
-assert_eq(persist.find('TargetWet'), 760, "SoilWet writes TargetWet to persist map")
+assert_eq(persist.find('P1TargetWet'), 760, "SoilWet writes TargetWet to persist map")
 assert_eq(persist.saves, saves0 + 1, "SoilWet write debounced (no immediate save)")
 
 section("cmd_rejects_close_values")
@@ -31,7 +31,7 @@ section("cmd_rejects_close_values")
 persist.saves = 0
 SIM['cmnds']['SoilDry']('SoilDry', 0, '780', '')
 assert_eq(ss.RawDry, 820, "SoilDry keeps value when gap==20")
-assert_eq(persist.find('TargetDry'), 820, "SoilDry not persisted on reject")
+assert_eq(persist.find('P1TargetDry'), 820, "SoilDry not persisted on reject")
 assert_eq(persist.saves, 0, "no save on rejected SoilDry")
 
 # gap 820-790 = 30 -> ok
@@ -41,7 +41,7 @@ assert_eq(ss.RawWet, 790, "SoilWet accepted when gap>20")
 # rejected SoilWet: back to 790 accepted, 810 gap=10 rejected
 SIM['cmnds']['SoilWet']('SoilWet', 0, '810', '')
 assert_eq(ss.RawWet, 790, "SoilWet keeps value when gap<20")
-assert_eq(persist.find('TargetWet'), 790, "SoilWet not persisted on reject")
+assert_eq(persist.find('P1TargetWet'), 790, "SoilWet not persisted on reject")
 
 section("cmd_soildry_bad_payload_no_crash")
 
@@ -61,7 +61,7 @@ SIM['cmnds']['SoilDry']('SoilDry', 0, '', '')
 assert_eq(ss.RawDry, dry_before, "SoilDry empty payload keeps RawDry")
 SIM['cmnds']['SoilWet']('SoilWet', 0, 'not-a-number', '')
 assert_eq(ss.RawWet, wet_before, "SoilWet garbage payload keeps RawWet")
-assert_eq(persist.find('TargetWet'), wet_before, "SoilWet garbage payload not persisted")
+assert_eq(persist.find('P1TargetWet'), wet_before, "SoilWet garbage payload not persisted")
 
 section("setter_guards_zero")
 
@@ -80,7 +80,7 @@ webserver.has_arg = def (name) return name == 'm_soildry' end
 webserver.arg = def (name, dflt) return '850' end
 wp1.web_sensor()
 assert_eq(ss.RawDry, 850, "web m_soildry sets RawDry")
-assert_eq(persist.find('TargetDry'), 850, "web m_soildry persists RawDry")
+assert_eq(persist.find('P1TargetDry'), 850, "web m_soildry persists RawDry")
 
 section("web_form_emits_inputs")
 

@@ -6,8 +6,8 @@ section("web_sensor_survives_soil1_crash")
 
 wp1.SoilSensors[0].RawEma = nil
 wp1.SoilSensors[1].RawEma = 900
-wp1.SoilMaxHymidity = nil
-wp1.LastFloodTime = nil
+wp1.plants[0].SoilMaxHymidity = nil
+wp1.plants[0].LastFloodTime = nil
 SIM['websend'] = list()
 wp1.web_sensor()
 
@@ -21,9 +21,8 @@ section("web25_max_row_guarded")
 
 # SoilMaxHymidity with time triggers the guarded max-humidity section (detail view)
 wp1.DetailView = true
-wp1.SoilMaxHymidity = 810
-wp1.SoilMaxHymidityConfirmed = true
-wp1.SoilMaxHymidityTime = SIM['rtc_local']
+wp1.plants[0].SoilMaxHymidity = 810
+wp1.plants[0].SoilMaxHymidityTime = SIM['rtc_local']
 SIM['websend'] = list()
 wp1.web_sensor()
 var j2 = ""

@@ -10,6 +10,16 @@ logging.basicConfig(level=logging.ERROR, format="%(message)s")
 tasmota_host = '172.17.252.43'
 filename = 'watering.be'
 
+# How to activate the uploaded script on the device:
+#   HOT_RELOAD = False -> BrRestart: clean reboot, autoexec.be loads the script
+#                         on boot. Reliable on real hardware (no stale driver
+#                         instance from the previous session crashing the load).
+#   HOT_RELOAD = True  -> load("<filename>"): hot reload in the running VM.
+#                         Only safe when no previous driver instance is still
+#                         registered; otherwise its callbacks fire during the
+#                         new init and crash it.
+HOT_RELOAD = False
+
 
 class UploadVerificationError(RuntimeError):
     """Upload verification Failed!"""
@@ -161,7 +171,6 @@ def main():
         n_log1 = t.getLog()
         if not t.pushfile(filename):
             raise UploadVerificationError("Upload verification Failed!")
-        t.berryCommand(f'load("{filename}")')
         time.sleep(0.1)
         print("Show console log")
         begin_t = time.monotonic()
@@ -172,7 +181,15 @@ def main():
             for line in filter(lambda x: len(x.strip()), n_log['lines']):
                 print(line)
             time.sleep(0.2)
-        t.consoleCommand('BrRestart')
+        if HOT_RELOAD:
+            # NOTE: hot reload is only safe when the previous session's driver
+            # instance is guaranteed gone. Otherwise the OLD driver's callbacks
+            # (json_append / every_second / rule handlers) still run during the
+            # new init's read_sensors() and crash the load with type_error
+            # ('nil' is not callable), e.g. during SoilSensor creation.
+            t.berryCommand(f'load("{filename}")')
+        else:
+            t.consoleCommand('BrRestart')
 
 
 if __name__ == "__main__":
