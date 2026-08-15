@@ -804,7 +804,7 @@ class Plant
         self.PowerN = 1
         if self.SoilSensor.IsWet()
             print("Too wet to flood. Stop pump.")
-            tasmota.cmd("Power" .. str(self.Num) .. " 0")
+            tasmota.set_power(self.Num - 1, false)
             return
         end
         tasmota.cmd("TelePeriod 10")
@@ -941,7 +941,7 @@ class Plant
 
     def rule_flooded(value, trigger)
         print("Flood limit by counter ".. value .. " by rule")
-        tasmota.cmd("Power" .. str(self.Num) .. " 0")
+        tasmota.set_power(self.Num - 1, false)
     end
 
     def _escalate_evaluate()
@@ -1018,7 +1018,7 @@ class Plant
         end
         # Effective dose: preset (dry soak) or estimate/default (normal flood).
         self.PlannedFlood = self.Preset.dose(self)
-        tasmota.cmd("Power" .. str(self.Num) .. " 1")
+        tasmota.set_power(self.Num - 1, true)
     end
 
     def start_session()
@@ -1413,7 +1413,7 @@ class Watering
         for p: self.plants
             tasmota.remove_rule("POWER" + str(p.Num))
             tasmota.remove_timer(p._soil_timer_id())
-            tasmota.cmd("Power" + str(p.Num) .. " 0")
+            tasmota.set_power(p.Num - 1, false)
             if p.FinishRule
                 tasmota.remove_rule(p.FinishRule)
                 p.FinishRule = nil
