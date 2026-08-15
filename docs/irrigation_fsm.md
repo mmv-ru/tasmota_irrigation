@@ -108,12 +108,9 @@ flowchart TD
         ROFF_ZERO --> ROFF_VOL
         ROFF_VOL -- да --> ROFF_REC["_record_flood(CounterDelta): LastFloodTime=now, LastFloodVol += CounterDelta"]
         ROFF_REC --> ROFF_DRY{"Preset.Type == 'dry'?"}
-        ROFF_DRY -- да --> ROFF_DRYT["DryDailyTicks.push({ms, ticks}) — накопление для DailyCap"]
-        ROFF_DRY -- нет --> ROFF_DELAY{"LastFloodVol > MaxFlood/2?"}
-        ROFF_DRYT --> ROFF_DELAY
-        ROFF_DELAY -- да --> ROFF_24["flood_delay = 24ч (большая доза — ждать дольше)"]
-        ROFF_DELAY -- нет --> ROFF_2["flood_delay = 2ч"]
-        ROFF_24 --> ROFF_TMR["set_timer пере-армит ID_SOILTRANSITION_AFTERFLOOD_P{Num} → timer_soil_transition_after_flooded"]
+        ROFF_DRY -- да --> ROFF_DRYT["DryDailyTicks.push({ms, ticks}) — накопление для DailyCap; flood_delay = SoakInterval"]
+        ROFF_DRY -- нет --> ROFF_2["flood_delay = 2ч"]
+        ROFF_DRYT --> ROFF_TMR["set_timer пере-армит ID_SOILTRANSITION_AFTERFLOOD_P{Num} → timer_soil_transition_after_flooded"]
         ROFF_2 --> ROFF_TMR
         ROFF_TMR --> ROFF_60S["set_timer(60с → timer_endfasttele_after_flooded: TelePeriod 300)"]
         ROFF_VOL -- нет (вода не прошла) --> ROFF_EMPTY["_end_session_no_water(): PauseSoilMaxStat=false, AutofloodInProcess=false (сессия без воды)"]
@@ -209,7 +206,7 @@ flowchart TD
 | `water_on()` | Старт: защита от мокрой почвы, `FinishRule = COUNTER#C1 >= ...` (общий счётчик), быстрая телеметрия, RateMeasuring |
 | `water_off()` | Стоп: читает Counter1, `_compensate_backflow()`, затем `_record_flood()` (вода прошла) или `_end_session_no_water()` (нет воды), таймер возврата TelePeriod |
 | `_compensate_backflow(Counter1)` | Вычитает backflow из счётчика (preset `counter1`) и из дельты, возвращает нетто-объём |
-| `_record_flood(CounterDelta)` | Фиксирует дозу: `LastFloodVol += delta`, при dry — пушит `{ms, ticks}` в `DryDailyTicks`, таймер проверки 2ч/24ч / SoakInterval, пере-арм `ID_SOILTRANSITION_AFTERFLOOD_P{Num}` |
+| `_record_flood(CounterDelta)` | Фиксирует дозу: `LastFloodVol += delta`, при dry — пушит `{ms, ticks}` в `DryDailyTicks`, таймер проверки 2ч (dry: SoakInterval), пере-арм `ID_SOILTRANSITION_AFTERFLOOD_P{Num}` |
 | `_end_session_no_water()` | Помпа работала без воды: закрывает сессию без таймера проверки почвы |
 | `rule_flooded()` | Триггер лимита: счётчик достиг порога → `Power{Num} 0` |
 | `timer_soil_transition_after_flooded()` | Диспетчер оценки результата: при `Preset != nil` → `Preset.evaluate()`, иначе классика `_escalate_evaluate()`; 'repeat' → `Owner.request_repeat(self)` |
@@ -247,7 +244,7 @@ flowchart TD
 ```
 auto_flood (sweep, round-robin) → Plant.start_session → _pick_preset (dry/normal) → start_flood() →
 Power{Num} 1 → water_on() → COUNTER#C1 превышен →
-rule_flooded → Power{Num} 0 → water_off() → таймер 2ч/24ч (dry: SoakInterval) →
+rule_flooded → Power{Num} 0 → water_off() → таймер 2ч (dry: SoakInterval) →
 timer_soil_transition_after_flooded →
   normal/escalate: сухо? (доза ×1.2, 'repeat' → request_repeat → start_flood()) : _autoflood_end → IDLE
   dry/trend:      RawEma<StopRaw → _drysoak_end → IDLE

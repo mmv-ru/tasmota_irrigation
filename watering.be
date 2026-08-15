@@ -886,8 +886,6 @@ class Plant
             # Dry soak cadence: fixed interval + daily volume tracking.
             flood_delay = int(self.Store.get(self.Prefix .. 'SoakInterval')) * 1000
             self.DryDailyTicks.push({'ms': tasmota.millis(), 'ticks': CounterDelta})
-        elif (self.LastFloodVol > self.MaxFlood/2)
-            flood_delay = 24*60*60*1000
         end
         tasmota.remove_timer(self._soil_timer_id())
         tasmota.set_timer(flood_delay, /-> self.timer_soil_transition_after_flooded(), self._soil_timer_id())

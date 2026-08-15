@@ -43,16 +43,6 @@ var st = SIM['timers']['ID_SOILTRANSITION_AFTERFLOOD_P1']
 assert_eq(st['delay'], 2*60*60*1000, "2h default flood interval")
 assert_eq(wp1.plants[0].LastFloodTime, SIM['rtc_local'], "last flood time recorded")
 
-section("record_flood_long_delay_when_over_half_max")
-
-# accumulated volume above MaxFlood/2 switches to the 24h post-flood check
-wp1.plants[0].MaxFlood = 2000
-wp1.plants[0].LastFloodVol = 0
-wp1.plants[0]._record_flood(1100)
-assert_eq(wp1.plants[0].LastFloodVol, 1100, "volume accumulated")
-var st2 = SIM['timers']['ID_SOILTRANSITION_AFTERFLOOD_P1']
-assert_eq(st2['delay'], 24*60*60*1000, "24h interval when over half MaxFlood")
-
 section("record_flood_replaces_pending_timer")
 
 # re-arm: a pending short timer must be replaced by the new one
