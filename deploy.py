@@ -2,13 +2,76 @@
 
 import diff_match_patch
 import logging
+import platform
 import requests
+import socket
+import subprocess
+import sys
 import time
 
 logging.basicConfig(level=logging.ERROR, format="%(message)s")
 
 tasmota_host = '172.17.252.43'
 filename = 'watering.be'
+
+# Berry crash / init-failure patterns looked up in the console log after BrRestart.
+# "Watering driver initialized" (watering.be) is the marker that the script loaded
+# and its boot section finished without an exception.
+INIT_MARKER = 'Watering driver initialized'
+LOG_TIMEOUT = 30.0      # seconds to wait for INIT_MARKER after restart
+LOG_OBSERVE = 5.0       # extra seconds of log monitoring after the marker appears
+LOG_POLL = 0.2          # log poll interval
+WEB_TIMEOUT = 10.0
+CRASH_PATTERNS = [
+    'type_error', 'syntax_error', 'index_error',
+    'stack traceback', 'undeclared',
+    'Giving up on delayed sensor init',
+    'WARNING: Watering driver NOT registered',
+]
+
+
+def ping_host(host, timeout=2):
+    """ICMP ping via the system 'ping'; fallback to a TCP connect to :80.
+
+    Returns (ok: bool, detail: str)."""
+    try:
+        if platform.system() == "Windows":
+            cmd = ["ping", "-n", "1", "-w", str(timeout * 1000), host]
+        else:
+            cmd = ["ping", "-c", "1", "-W", str(timeout), host]
+        res = subprocess.run(cmd, capture_output=True, timeout=timeout + 2)
+        if res.returncode == 0:
+            return True, "ping ok"
+        return False, "ping exit %d" % res.returncode
+    except FileNotFoundError:
+        try:
+            with socket.create_connection((host, 80), timeout=timeout):
+                return True, "TCP :80 ok (no system ping)"
+        except OSError as e:
+            return False, "TCP :80 check failed: %s" % e
+    except Exception as e:
+        return False, "ping error: %s" % e
+
+
+def ping_note(host, problems, ping_info):
+    """On the first network failure run a ping check and report it once;
+    later network failures in the same run stay silent (already covered)."""
+    if ping_info['done']:
+        return
+    ping_info['done'] = True
+    ok, detail = ping_host(host)
+    if ok:
+        text = "устройство отвечает на пинг, но сетевой запрос не прошёл"
+    else:
+        text = "тест пинг на устройство не проходит (%s)" % detail
+    problems.append(text)
+
+
+def analyze_log(lines):
+    """Return (crash_lines, init_ok) from collected berry console log."""
+    crashes = [l for l in lines if any(p in l for p in CRASH_PATTERNS)]
+    init_ok = any(INIT_MARKER in l for l in lines)
+    return crashes, init_ok
 
 # How to activate the uploaded script on the device:
 #   HOT_RELOAD = False -> BrRestart: clean reboot, autoexec.be loads the script
@@ -25,6 +88,19 @@ class UploadVerificationError(RuntimeError):
     """Upload verification Failed!"""
 
 
+DEFAULT_TIMEOUT = (5, 15)  # connect / read seconds
+
+
+def _timeout_wrapped(request_fn):
+    """Wrap Session.request to apply a default (connect, read) timeout when the
+    caller did not pass an explicit one."""
+    def wrapped(method, url, **kwargs):
+        if 'timeout' not in kwargs or kwargs['timeout'] is None:
+            kwargs['timeout'] = DEFAULT_TIMEOUT
+        return request_fn(method, url, **kwargs)
+    return wrapped
+
+
 class Tasmota:
     """Network Interaction with Tasmota IoT device"""
 
@@ -36,6 +112,10 @@ class Tasmota:
                                                          pool_maxsize=1,
                                                          max_retries=3,
                                                          pool_block=True))
+        # No request should block forever on a dead/unreachable device: every
+        # request (upload, download, console, web) inherits this timeout and
+        # raises requests.exceptions so main() can fall back to a ping check.
+        self.session.request = _timeout_wrapped(self.session.request)
 
     def __enter__(self):
         return self
@@ -165,31 +245,123 @@ class Tasmota:
         # print(log)
         repr(response)
 
+    def collect_log(self, problems, ping_info):
+        """Poll the console log after restart until INIT_MARKER + a short
+        observation window. Returns the collected (non-empty) lines.
+
+        A requests failure raises a RequestException; the caller (main) turns
+        it into a ping check via ping_note()."""
+        try:
+            n_log = self.getLog()
+        except requests.exceptions.RequestException as e:
+            print(f"Log fetch failed (network): {e}")
+            ping_note(self.tasmota_host, problems, ping_info)
+            return []
+        lines = []
+        seen_marker = False
+
+        def _consume(n_log):
+            nonlocal seen_marker
+            for line in filter(lambda x: len(x.strip()), n_log['lines']):
+                lines.append(line)
+                if INIT_MARKER in line:
+                    seen_marker = True
+
+        # The first call returns the whole log; the marker may already be in
+        # it right after a quick BrRestart, so it must be consumed too.
+        _consume(n_log)
+        begin = time.monotonic()
+        while time.monotonic() - begin < LOG_TIMEOUT:
+            if seen_marker:
+                break
+            try:
+                n_log = self.getLog(start_from=n_log['LastMsg'])
+            except requests.exceptions.RequestException as e:
+                print(f"Log fetch failed (network): {e}")
+                ping_note(self.tasmota_host, problems, ping_info)
+                return lines
+            _consume(n_log)
+            time.sleep(LOG_POLL)
+        if not seen_marker:
+            problems.append(
+                f"таймаут получения логов (нет '{INIT_MARKER}' за {int(LOG_TIMEOUT)} с)")
+            return lines
+        # A few more seconds after init so late startup errors are caught too.
+        t_end = time.monotonic() + LOG_OBSERVE
+        while time.monotonic() < t_end:
+            try:
+                n_log = self.getLog(start_from=n_log['LastMsg'])
+            except requests.exceptions.RequestException as e:
+                print(f"Log fetch failed (network): {e}")
+                ping_note(self.tasmota_host, problems, ping_info)
+                return lines
+            _consume(n_log)
+            time.sleep(LOG_POLL)
+        return lines
+
+    def check_web(self, problems, ping_info):
+        """Main page must return 200 and contain channel sections (tr.sec)."""
+        try:
+            response = self.session.get(
+                f'http://{self.tasmota_host}/', timeout=WEB_TIMEOUT)
+            if response.status_code != 200:
+                problems.append(f"главная страница вернула HTTP {response.status_code}")
+                return
+            if 'tr.sec' not in response.text:
+                problems.append("главная страница 200, но каналы (tr.sec) не найдены")
+        except requests.exceptions.RequestException as e:
+            print(f"Main page fetch failed (network): {e}")
+            ping_note(self.tasmota_host, problems, ping_info)
+
 
 def main():
+    problems = []          # human-readable failures; non-empty -> exit 1
+    ping_info = {'done': False, 'text': None}
     with Tasmota(tasmota_host) as t:
-        n_log1 = t.getLog()
-        if not t.pushfile(filename):
-            raise UploadVerificationError("Upload verification Failed!")
-        time.sleep(0.1)
-        print("Show console log")
-        begin_t = time.monotonic()
-        n_log = n_log1
-        while time.monotonic() < begin_t + 6:
-            n_log = t.getLog(start_from=n_log['LastMsg'])
-            # print((n_log['LastMsg'], n_log['B'], n_log['C'], n_log['D']))
-            for line in filter(lambda x: len(x.strip()), n_log['lines']):
-                print(line)
-            time.sleep(0.2)
-        if HOT_RELOAD:
-            # NOTE: hot reload is only safe when the previous session's driver
-            # instance is guaranteed gone. Otherwise the OLD driver's callbacks
-            # (json_append / every_second / rule handlers) still run during the
-            # new init's read_sensors() and crash the load with type_error
-            # ('nil' is not callable), e.g. during SoilSensor creation.
-            t.berryCommand(f'load("{filename}")')
-        else:
-            t.consoleCommand('BrRestart')
+        # 1. Upload (if changed) + verify. Continue on failure so the log and
+        #    web checks still run and report their own state.
+        try:
+            if not t.pushfile(filename):
+                problems.append("upload verification failed")
+        except requests.exceptions.RequestException as e:
+            print(f"Upload failed (network): {e}")
+            ping_note(tasmota_host, problems, ping_info)
+
+        # 2. (Re)start the Berry VM so autoexec loads the fresh script.
+        try:
+            if HOT_RELOAD:
+                t.berryCommand(f'load("{filename}")')
+            else:
+                t.consoleCommand('BrRestart')
+        except requests.exceptions.RequestException as e:
+            print(f"Restart command failed (network): {e}")
+            ping_note(tasmota_host, problems, ping_info)
+
+        # 3. Watch the console log: wait for the init marker, then a few
+        #    more seconds. Any berry crash/init-fail pattern is a deploy fail.
+        lines = t.collect_log(problems, ping_info)
+        crashes, init_ok = analyze_log(lines)
+        if init_ok:
+            print("Init marker found: Watering driver initialized")
+        if crashes:
+            problems.append("ошибка в логах после старта:")
+            for line in crashes:
+                print("  " + line)
+
+        # 4. Main page must answer 200 and render channel sections. Runs
+        #    regardless of log problems — collect the full picture first.
+        time.sleep(1)
+        t.check_web(problems, ping_info)
+
+    # 5. Aggregate: all checks already ran; only now decide the exit code.
+    if problems:
+        print("\n=== Deploy problems ===")
+        for p in problems:
+            print(" -", p)
+        print("Deploy FAILED")
+        sys.exit(1)
+    print("Deploy OK: upload verified, no startup errors, main page up")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
