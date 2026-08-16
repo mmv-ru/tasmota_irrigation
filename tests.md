@@ -203,8 +203,10 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 `deploy.py` делает сам и падает (rc=1) при любой проблеме:
 
 - заливает `watering.be`, только если файл изменился; верифицирует загрузку (`/ufsd?download=...` 200);
+- перед аплоадом читает `/in` (heap: `Free Memory ... (frag. N%)`): при `frag >= 40%` делает полный рестарт устройства (`Restart 1`) и ждёт его возврата — фрагментированный heap ломает и `/ufsu`-аплоад, и загрузку скрипта;
 - `BrRestart` и ждёт в логе маркер `Watering driver initialized`;
-- собирает лог после старта и ищет краши/ошибки инициализации (`type_error`, `syntax_error`, `index_error`, `stack traceback`, `undeclared`, `Giving up on delayed sensor init`, `WARNING: Watering driver NOT registered`);
+- собирает лог после старта и ищет краши/ошибки инициализации (`type_error`, `syntax_error`, `index_error`, `stack traceback`, `undeclared`, `MEMORY ALLOCATION FAILED`, `Giving up on delayed sensor init`, `WARNING: Watering driver NOT registered`);
+- если после `BrRestart` в логе `MEMORY ALLOCATION FAILED` — автоматически повторяет с полным `Restart 1` (очищает heap и лог);
 - `GET /` — страница 200 и в HTML есть секции каналов (`tr.sec`);
 - сетевые таймауты помечаются отдельной проблемой + пинг до устройства (одна проверка за прогон).
 

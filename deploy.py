@@ -3,6 +3,7 @@
 import diff_match_patch
 import logging
 import platform
+import re
 import requests
 import socket
 import subprocess
@@ -22,11 +23,19 @@ LOG_TIMEOUT = 30.0      # seconds to wait for INIT_MARKER after restart
 LOG_OBSERVE = 5.0       # extra seconds of log monitoring after the marker appears
 LOG_POLL = 0.2          # log poll interval
 WEB_TIMEOUT = 10.0
+# Heap fragmentation (from /in "Free Memory ... (frag. N%)") above which a full
+# device restart (Restart 1) is done instead of a Berry-only BrRestart. High
+# fragmentation was observed to break both the /ufsu upload and the script load
+# (MEMORY ALLOCATION FAILED) after BrRestart; only a full restart resets it.
+FRAG_THRESHOLD = 40.0
+FULL_RESTART_WAIT = 40.0  # seconds to poll the device back after Restart 1
+FULL_RESTART_POLL = 2.0
 CRASH_PATTERNS = [
     'type_error', 'syntax_error', 'index_error',
     'stack traceback', 'undeclared',
     'Giving up on delayed sensor init',
     'WARNING: Watering driver NOT registered',
+    'MEMORY ALLOCATION FAILED',
 ]
 
 
@@ -245,6 +254,40 @@ class Tasmota:
         # print(log)
         repr(response)
 
+    def get_fragmentation(self):
+        """Read /in and parse heap free KB and fragmentation percent.
+
+        Returns (free_kb: float, frag: float) or None if the page did not
+        parse (e.g. the Info page changed). Uses a short explicit timeout so
+        a dead device raises quickly instead of blocking the run."""
+        try:
+            r = self.session.get(f'http://{self.tasmota_host}/in', timeout=WEB_TIMEOUT)
+            if r.status_code != 200:
+                return None
+        except requests.exceptions.RequestException:
+            return None
+        m = re.search(
+            r'Free Memory}\s*([\d.]+)\s*KB\s*\(frag\.\s*([\d.]+)%\)', r.text)
+        if not m:
+            return None
+        return float(m.group(1)), float(m.group(2))
+
+    def wait_device_up(self):
+        """Poll the device back after a full 'Restart 1'.
+
+        A full restart takes the webserver down for ~10-20 s; any network
+        error in this window is expected, so nothing is reported as a
+        problem here. Returns True once a request succeeds."""
+        begin = time.monotonic()
+        while time.monotonic() - begin < FULL_RESTART_WAIT:
+            try:
+                self.session.get(f'http://{self.tasmota_host}/cs',
+                                 timeout=WEB_TIMEOUT)
+                return True
+            except requests.exceptions.RequestException:
+                time.sleep(FULL_RESTART_POLL)
+        return False
+
     def collect_log(self, problems, ping_info):
         """Poll the console log after restart until INIT_MARKER + a short
         observation window. Returns the collected (non-empty) lines.
@@ -314,10 +357,61 @@ class Tasmota:
             ping_note(self.tasmota_host, problems, ping_info)
 
 
+def _restart_and_collect(t, full):
+    """Restart the device (full=Restart 1 else BrRestart), wait it back if
+    full, then collect the console log until the init marker appears.
+
+    Returns (lines, init_ok, crashes, problems) where problems is a fresh
+    list scoped to this attempt — a retry replaces the previous one."""
+    attempt_problems = []
+    ping_info = {'done': False, 'text': None}
+    try:
+        if full:
+            t.consoleCommand('Restart 1')
+        elif HOT_RELOAD:
+            t.berryCommand(f'load("{filename}")')
+        else:
+            t.consoleCommand('BrRestart')
+    except requests.exceptions.RequestException as e:
+        print(f"Restart command failed (network): {e}")
+        ping_note(t.tasmota_host, attempt_problems, ping_info)
+        return [], False, [], attempt_problems
+    if full and not t.wait_device_up():
+        attempt_problems.append(
+            "устройство не вернулось после полного рестарта (Restart 1)")
+        return [], False, [], attempt_problems
+    if full:
+        time.sleep(2)
+    lines = t.collect_log(attempt_problems, ping_info)
+    crashes, init_ok = analyze_log(lines)
+    return lines, init_ok, crashes, attempt_problems
+
+
 def main():
     problems = []          # human-readable failures; non-empty -> exit 1
     ping_info = {'done': False, 'text': None}
     with Tasmota(tasmota_host) as t:
+        # 0. Check heap fragmentation before uploading. A fragmented/exhausted
+        #    heap was observed to break both /ufsu uploads and the script load
+        #    after BrRestart (MEMORY ALLOCATION FAILED); only a full device
+        #    restart resets it. Do it up front so the whole run is clean.
+        mem = t.get_fragmentation()
+        if mem:
+            print(f"Memory: free {mem[0]:.0f} KB, frag {mem[1]:.0f}%")
+        if mem and mem[1] >= FRAG_THRESHOLD:
+            print(f"Heap frag {mem[1]:.0f}% >= {FRAG_THRESHOLD:.0f}%: "
+                  "полный рестарт перед аплоадом")
+            try:
+                t.consoleCommand('Restart 1')
+            except requests.exceptions.RequestException as e:
+                print(f"Restart command failed (network): {e}")
+                ping_note(tasmota_host, problems, ping_info)
+            else:
+                if not t.wait_device_up():
+                    problems.append(
+                        "устройство не вернулось после полного рестарта (Restart 1)")
+                time.sleep(2)
+
         # 1. Upload (if changed) + verify. Continue on failure so the log and
         #    web checks still run and report their own state.
         try:
@@ -327,22 +421,18 @@ def main():
             print(f"Upload failed (network): {e}")
             ping_note(tasmota_host, problems, ping_info)
 
-        # 2. (Re)start the Berry VM so autoexec loads the fresh script.
-        try:
-            if HOT_RELOAD:
-                t.berryCommand(f'load("{filename}")')
-            else:
-                t.consoleCommand('BrRestart')
-        except requests.exceptions.RequestException as e:
-            print(f"Restart command failed (network): {e}")
-            ping_note(tasmota_host, problems, ping_info)
-
-        # 3. Watch the console log: wait for the init marker, then a few
-        #    more seconds. Any berry crash/init-fail pattern is a deploy fail.
-        lines = t.collect_log(problems, ping_info)
-        crashes, init_ok = analyze_log(lines)
+        # 2-3. Restart the Berry VM and watch the console log. Try BrRestart
+        #    first; if the fresh load died with MEMORY ALLOCATION FAILED, retry
+        #    once with a full device restart (it clears the heap and the log).
+        lines, init_ok, crashes, attempt_problems = _restart_and_collect(t, False)
+        if any('MEMORY ALLOCATION FAILED' in l for l in lines):
+            print("MEMORY ALLOCATION FAILED после BrRestart: "
+                  "повтор с полным рестартом")
+            lines, init_ok, crashes, attempt_problems = \
+                _restart_and_collect(t, True)
         if init_ok:
             print("Init marker found: Watering driver initialized")
+        problems.extend(attempt_problems)
         if crashes:
             problems.append("ошибка в логах после старта:")
             for line in crashes:
