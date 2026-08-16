@@ -302,12 +302,9 @@ class SoilSensor: AbstractSensor
                 "<tr class='sub'><th>mV</th><td>%01.1f mV</td></tr>",
                 self.Hu, self.mV)
         else
-            if self.RawEma != nil
-                msg = msg .. string.format(
-                    "<tr class='sub'><th>Raw EMA(%i)</th><td>%01.4f</td></tr>"..
-                    "<tr class='sub'><th>Hymidity</th><td>%01.1f%%</td></tr>",
-                    self.EMAN, self.RawEma, self.Raw2Hymidity(self.RawEma))
-            end
+            # Compact view: no rows — Raw EMA is already in the header pill
+            # ("raw"), and Hymidity is meaningless until calibration (and after
+            # calibration it moves to the header too). Keep both in detail view.
         end
         # Flooding/session state moved to the expanded detail (web_soil_detail):
         # the header now carries the status icon instead of a per-row text.
