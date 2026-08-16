@@ -51,7 +51,8 @@
     #l1 table{border-collapse:separate;border-spacing:0;}
     #l1 tr.sec{display:table-row;width:100%;}
     #l1 tr.sec th.hdr,#l1 tr.sec td.tgl{background:#3a3a3a;transition:background .2s;cursor:pointer;}
-    #l1 tr.sec th.hdr{display:table-cell;vertical-align:middle;border-left:4px solid #1fa3ec;border-radius:8px 0 0 8px;padding:8px 10px;font-weight:600;font-size:.95rem;color:#eaeaea;}
+    #l1 tr.sec th.hdr{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;vertical-align:middle;border-left:4px solid #1fa3ec;border-radius:8px 0 0 8px;padding:8px 10px;font-weight:600;font-size:.95rem;color:#eaeaea;}
+    #l1 tr.sec th.hdr .params{margin-left:auto;}
     #l1 tr.sec td.tgl{display:table-cell;vertical-align:middle;text-align:right;border-radius:0 8px 8px 0;padding:0 10px;white-space:nowrap;}
     #l1 tr.sec:hover th.hdr,#l1 tr.sec:hover td.tgl{background:#444;}
     #l1 tr.sec a.chev{color:#1fa3ec;text-decoration:none;font-size:1.1rem;padding:4px 2px;display:inline-block;vertical-align:middle;}
@@ -60,7 +61,7 @@
     #l1 tr.sub td{padding:3px 10px;text-align:right;color:#fff;font-weight:500;font-size:.88rem;}
     #l1 tr.grp td{padding:8px 10px 2px 26px;color:#8ca0b3;font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-top:1px solid #3e3e3e;}
     #l1 .stk{display:block;color:#8ca0b3;font-size:.75rem;font-weight:400;}
-    #l1 .pill{display:inline-block;background:#25303d;color:#8bc34a;padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;}
+    #l1 .pill{display:inline-block;background:#25303d;color:#8bc34a;padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin-right:4px;}
     #l1 .pill b{color:#8bc34a;font-weight:600;}
     #l1 .pill b:first-child{color:#7a8aa0;font-weight:400;}
     #l1 .st{display:inline-block;font-size:1.4rem;line-height:1;vertical-align:middle;margin-right:6px;cursor:pointer;}
@@ -113,9 +114,11 @@
             <!-- ================= soil1 (Канал 1, wait) ================= -->
             <tr class="sec" data-sec="soil1">
                 <th class="hdr" onclick="_secToggle('soil1');return false;"><span class="st wait" onclick="_wdShowTT(this,event)">💧</span>Канал 1
+                    <span class="params">
                     <span class="pill"><b>raw</b> 794.52</span>
                     <span class="pill"><b>сухо</b> 800</span>
                     <span class="pill"><b>влажно</b> 760</span>
+                    </span>
                 </th>
                 <td class="tgl"><a class="chev" href="#" onclick="_secToggle('soil1');return false;">▼</a></td>
             </tr>
@@ -145,9 +148,11 @@
             <!-- ================= soil2 (Канал 2, sess) ================= -->
             <tr class="sec" data-sec="soil2">
                 <th class="hdr" onclick="_secToggle('soil2');return false;"><span class="st sess" onclick="_wdShowTT(this,event)">⏳</span>Канал 2
+                    <span class="params">
                     <span class="pill"><b>raw</b> 1236.72</span>
                     <span class="pill"><b>сухо</b> 800</span>
                     <span class="pill"><b>влажно</b> 760</span>
+                    </span>
                 </th>
                 <td class="tgl"><a class="chev" href="#" onclick="_secToggle('soil2');return false;">▼</a></td>
             </tr>
@@ -155,8 +160,10 @@
             <!-- ================= soil3 (Канал 3, run) ================= -->
             <tr class="sec" data-sec="soil3">
                 <th class="hdr" onclick="_secToggle('soil3');return false;"><span class="st run" onclick="_wdShowTT(this,event)">💦</span>Канал 3
+                    <span class="params">
                     <span class="pill"><b>сухо</b> 800</span>
                     <span class="pill"><b>влажно</b> 760</span>
+                    </span>
                 </th>
                 <td class="tgl"><a class="chev" href="#" onclick="_secToggle('soil3');return false;">▼</a></td>
             </tr>
@@ -164,8 +171,10 @@
             <!-- ================= soil4 (Канал 4, wait) ================= -->
             <tr class="sec" data-sec="soil4">
                 <th class="hdr" onclick="_secToggle('soil4');return false;"><span class="st wait" onclick="_wdShowTT(this,event)">💧</span>Канал 4
+                    <span class="params">
                     <span class="pill"><b>сухо</b> 800</span>
                     <span class="pill"><b>влажно</b> 760</span>
+                    </span>
                 </th>
                 <td class="tgl"><a class="chev" href="#" onclick="_secToggle('soil4');return false;">▼</a></td>
             </tr>

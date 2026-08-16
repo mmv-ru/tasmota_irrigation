@@ -277,11 +277,12 @@ class SoilSensor: AbstractSensor
         # styled by the injected <style> block, see web_add_main_button()).
         msg = "<tr class='sec'><th class='hdr' onclick='_secToggle(\"" .. sec .. "\");return false;'>"
         msg = msg .. "<span class='st " .. stc .. "' onclick='_wdShowTT(this,event)'>" .. st .. "</span>" .. nm
+        msg = msg .. "<span class='params'>"
         if self.RawEma != nil
             msg = msg .. "<span class='pill'><b>raw</b> " .. string.format("%01.2f", self.RawEma) .. "</span>"
         end
         msg = msg .. "<span class='pill'><b>сухо</b> " .. str(self.RawDry) .. "</span>" ..
-                    "<span class='pill'><b>влажно</b> " .. str(self.RawWet) .. "</span>" ..
+                    "<span class='pill'><b>влажно</b> " .. str(self.RawWet) .. "</span></span>" ..
                     "</th><td class='tgl'><a class='chev' href='#' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. arrow .. "</a></td></tr>"
         if expanded
             msg = msg .. "<tr class='grp'><td colspan='2'>Уставки</td></tr>"
@@ -1523,7 +1524,8 @@ class Watering
             "#l1 table{border-collapse:separate;border-spacing:0;}"..
             "#l1 tr.sec{display:table-row;width:100%;}"..
             "#l1 tr.sec th.hdr,#l1 tr.sec td.tgl{background:#3a3a3a;transition:background .2s;cursor:pointer;}"..
-            "#l1 tr.sec th.hdr{display:table-cell;vertical-align:middle;border-left:4px solid #1fa3ec;border-radius:8px 0 0 8px;padding:8px 10px;font-weight:600;font-size:.95rem;color:#eaeaea;}"..
+            "#l1 tr.sec th.hdr{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;vertical-align:middle;border-left:4px solid #1fa3ec;border-radius:8px 0 0 8px;padding:8px 10px;font-weight:600;font-size:.95rem;color:#eaeaea;}"..
+            "#l1 tr.sec th.hdr .params{margin-left:auto;}"..
             "#l1 tr.sec td.tgl{display:table-cell;vertical-align:middle;text-align:right;border-radius:0 8px 8px 0;padding:0 10px;white-space:nowrap;}"..
             "#l1 tr.sec:hover th.hdr,#l1 tr.sec:hover td.tgl{background:#444;}"..
             "#l1 tr.sec a.chev{color:#1fa3ec;text-decoration:none;font-size:1.1rem;padding:4px 2px;display:inline-block;vertical-align:middle;}"..
@@ -1532,7 +1534,7 @@ class Watering
             "#l1 tr.sub td{padding:3px 10px;text-align:right;color:#fff;font-weight:500;font-size:.88rem;}"..
             "#l1 tr.grp td{padding:8px 10px 2px 26px;color:#8ca0b3;font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-top:1px solid #3e3e3e;}"..
             "#l1 .stk{display:block;color:#8ca0b3;font-size:.75rem;font-weight:400;}"..
-            "#l1 .pill{display:inline-block;background:#25303d;color:#8bc34a;padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;}"..
+            "#l1 .pill{display:inline-block;background:#25303d;color:#8bc34a;padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin-right:4px;}"..
             "#l1 .pill b{color:#8bc34a;font-weight:600;}"..
             "#l1 .pill b:first-child{color:#7a8aa0;font-weight:400;}"..
             "#l1 .st{display:inline-block;font-size:1.4rem;line-height:1;vertical-align:middle;margin-right:6px;cursor:pointer;}"..
