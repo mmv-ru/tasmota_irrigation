@@ -56,6 +56,8 @@ class AbstractSensor
         self.Raw = sensors[key0][self.SensorID[1]]
     end
 
+
+
     def web_sensor()
         import string
         var msg
@@ -252,39 +254,62 @@ class SoilSensor: AbstractSensor
         return self.Raw != nil && self.Raw <= self.RawWet
     end
 
-    def web_sensor(detail)
+    def web_sensor(expanded, sec, plant)
         import string
         var msg
-        if detail
-            msg  = string.format(
-                "{s}" .. self.Name .. "{e}"..
-                "{s}| TargetDry{m}%01.2f{e}"..
-                "{s}| | Hu{m}%01.1f%%{e}"..
-                "{s}| TargetWet{m}%01.2f{e}"..
-                "{s}| | Hu{m}%01.1f%%{e}",
-                self.SensorID[1],
+        var nm = "Канал " .. str(plant.Num)
+        var arrow = expanded ? "▲" : "▼"
+        # Per-channel status icon in the header: 💧 wait / ⏳ watering
+        # session / 💦 pump running, shown left of the title. A JS tooltip
+        # (#wdtt, opened by a click on the icon) shows a styled legend of all
+        # three states, the current one marked "→".
+        var st = "💧"
+        var stc = "wait"
+        if plant.PowerN == 1
+            st = "💦"
+            stc = "run"
+        elif plant.AutofloodInProcess
+            st = "⏳"
+            stc = "sess"
+        end
+        # Section header as raw HTML: la() only rewrites the {s}/{m}/{e} tokens,
+        # any other markup passes through to #l1 unchanged (border-radius etc.
+        # styled by the injected <style> block, see web_add_main_button()).
+        msg = "<tr class='sec'><th class='hdr' onclick='_secToggle(\"" .. sec .. "\");return false;'>"
+        msg = msg .. "<span class='st " .. stc .. "' onclick='_wdShowTT(this,event)'>" .. st .. "</span>" .. nm
+        if self.RawEma != nil
+            msg = msg .. "<span class='pill'><b>raw</b> " .. string.format("%01.2f", self.RawEma) .. "</span>"
+        end
+        msg = msg .. "<span class='pill'><b>сухо</b> " .. str(self.RawDry) .. "</span>" ..
+                    "<span class='pill'><b>влажно</b> " .. str(self.RawWet) .. "</span>" ..
+                    "</th><td class='tgl'><a class='chev' href='#' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. arrow .. "</a></td></tr>"
+        if expanded
+            msg = msg .. "<tr class='grp'><td colspan='2'>Уставки</td></tr>"
+            msg = msg .. string.format(
+                "<tr class='sub'><th>Сухо</th><td>%01.2f raw<br/><span class='stk'>%01.1f%% u</span></td></tr>"..
+                "<tr class='sub'><th>Влажно</th><td>%01.2f raw<br/><span class='stk'>%01.1f%% u</span></td></tr>",
                 self.RawDry, self.Raw2Hu(self.RawDry),
                 self.RawWet, self.Raw2Hu(self.RawWet)
                 )
+            msg = msg .. "<tr class='grp'><td colspan='2'>Датчик</td></tr>"
             msg = msg .. string.format(
-                "{s}| Raw{m}%i{e}" ..
-                "{s}| Raw EMA(%i){m}%01.4f{e}",
+                "<tr class='sub'><th>Raw</th><td>%i</td></tr>" ..
+                "<tr class='sub'><th>Raw EMA(%i)</th><td>%01.4f</td></tr>",
                 self.Raw, self.EMAN, self.RawEma)
             msg = msg .. string.format(
-                "{s}| Hymidity u{m}%01.1f%%{e}"..
-                "{s}| | mV{m}%01.1f mV{e}",
+                "<tr class='sub'><th>Hymidity u</th><td>%01.1f%%</td></tr>"..
+                "<tr class='sub'><th>mV</th><td>%01.1f mV</td></tr>",
                 self.Hu, self.mV)
         else
-            msg = string.format(
-                "{s}" .. self.Name .. "{e}",
-                self.SensorID[1])
             if self.RawEma != nil
                 msg = msg .. string.format(
-                    "{s}| Raw EMA(%i){m}%01.4f{e}"..
-                    "{s}| Hymidity{m}%01.1f%%{e}",
+                    "<tr class='sub'><th>Raw EMA(%i)</th><td>%01.4f</td></tr>"..
+                    "<tr class='sub'><th>Hymidity</th><td>%01.1f%%</td></tr>",
                     self.EMAN, self.RawEma, self.Raw2Hymidity(self.RawEma))
             end
         end
+        # Flooding/session state moved to the expanded detail (web_soil_detail):
+        # the header now carries the status icon instead of a per-row text.
 
         tasmota.web_send_decimal(msg)
 
@@ -394,19 +419,20 @@ class FlowSensor: AbstractSensor
         end
     end
 
-    def web_sensor(detail)
+    def web_sensor(expanded, sec)
         import string
         var msg
-        msg = string.format(
-            "{s}" .. self.Name .. "{e}",
-            self.SensorID[1])
+        var nm = "Common"
+        var arrow = expanded ? "▲" : "▼"
+        msg = "<tr class='sec'><th class='hdr' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. nm ..
+              "</th><td class='tgl'><a class='chev' href='#' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. arrow .. "</a></td></tr>"
         msg = msg .. string.format(
-                  "{s}| Water used{m}%01.1f ml{e}",
+                  "<tr class='sub'><th>Water used</th><td>%01.1f ml</td></tr>",
                   self.Raw2Flow(self.Raw))
-        if detail
+        if expanded
             msg = msg .. string.format(
-                      "{s}| Water flow{m}%i pulse/s{e}"..
-                      "{s}| Water flow{m}%01.1f ml/min{e}",
+                      "<tr class='sub'><th>Water flow</th><td>%i pulse/s</td></tr>"..
+                      "<tr class='sub'><th>Water flow</th><td>%01.1f ml/min</td></tr>",
                       self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
         end
 
@@ -1115,10 +1141,10 @@ class Watering
     var PowerMap
     var _rr_idx
     var BootInitTries
-    var DetailView
     var TimeCacheKey
     var TimeCache
     var Store
+    var NumChannels
 
 
     def button_pressed(cmd, idx, payload, raw)
@@ -1255,10 +1281,20 @@ class Watering
         print("imported", tasmota)
         self.BootInitTries = 0
         self.Store = PersistStore()
+        # Channel count is a Store variable (persistent, immediate policy) so
+        # the number of channels can be configured without code changes. It is
+        # registered before load() and clamped to [1, MAX_CHANNELS].
+        self.Store.register('Channels', {'default': '4', 'policy': 'immediate'})
         for i: 0..(MAX_CHANNELS - 1)
             self.Store.register_channel('P' + str(i + 1))
         end
         self.Store.load()
+        self.NumChannels = int(self.Store.get('Channels'))
+        if self.NumChannels == nil || self.NumChannels < 1
+            self.NumChannels = 1
+        elif self.NumChannels > MAX_CHANNELS
+            self.NumChannels = MAX_CHANNELS
+        end
         self.init_sensors()
     end
 
@@ -1288,12 +1324,11 @@ class Watering
 
         self.FlowSensorCalibration = false
         self.Conf_Toggle = 0
-        self.DetailView = false
 
         print("Init sensors")
         self.SoilSensors = list()
         self.FlowSensors = list()
-        for i: 0..(MAX_CHANNELS - 1)
+        for i: 0..(self.NumChannels - 1)
             self.SoilSensors.push(SoilSensor('A' + str(i + 1), self.Store, 'P' + str(i + 1)))
         end
         self.FlowSensors = [FlowSensor('C1'), FlowSensor('C2')]
@@ -1304,7 +1339,7 @@ class Watering
         self.plants = list()
         self.PowerMap = {}
         self._rr_idx = 0
-        for i: 0..(MAX_CHANNELS - 1)
+        for i: 0..(self.NumChannels - 1)
             var p = Plant(i, self)
             self.plants.push(p)
             self.PowerMap['POWER' + str(i + 1)] = p
@@ -1395,6 +1430,23 @@ class Watering
             import json
             tasmota.resp_cmnd_str(json.dump(self.Store.dump()))
         end)
+        tasmota.remove_cmd("Channels")
+        tasmota.add_cmd("Channels", def (cmd, idx, payload, payload_json)
+            # Report or set the channel count (persisted in the Store variable).
+            # Empty payload means "report"; a number sets Channels and needs a
+            # restart to take effect (init builds sensors/plants/rules from it).
+            if payload == nil || payload == ""
+                tasmota.resp_cmnd_str(str(self.NumChannels))
+                return
+            end
+            var n = int(payload)
+            if n == nil || n < 1 || n > MAX_CHANNELS
+                tasmota.resp_cmnd_error()
+                return
+            end
+            self.Store.set('Channels', str(n))
+            tasmota.resp_cmnd_str("Channels set to " .. str(n) .. ", restart required")
+        end)
         print("Command Store initialized")
     end
 
@@ -1410,6 +1462,7 @@ class Watering
         tasmota.remove_cmd("SoilWet")
         tasmota.remove_cmd("DrySoak")
         tasmota.remove_cmd("Store")
+        tasmota.remove_cmd("Channels")
         for p: self.plants
             tasmota.remove_rule("POWER" + str(p.Num))
             tasmota.remove_timer(p._soil_timer_id())
@@ -1460,7 +1513,87 @@ class Watering
     def web_add_main_button()
         webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
         webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_1=1\");'>Reset water counter 1</button>")
-        webserver.content_send("<p></p><button onclick='this.innerHTML=(this.innerHTML.indexOf(\"Compact view\")>=0)?\"Detail view\":\"Compact view\";la(\"&m_detail=2\");'>" .. (self.DetailView ? "Compact view" : "Detail view") .. "</button>")
+        # Section design (variant B): band headers with badges and a status
+        # icon, text chevrons (▼/▲, no <button> so it does not look like
+        # Play/Run), indented sub-rows. Applied via an injected <style> block:
+        # la() only rewrites the {s}/{m}/{e} tokens, the rest of the response
+        # lands in #l1 verbatim, so CSS classes on our raw <tr> work.
+        webserver.content_send(
+            "<style>"..
+            "#l1 table{border-collapse:separate;border-spacing:0;}"..
+            "#l1 tr.sec{display:table-row;width:100%;}"..
+            "#l1 tr.sec th.hdr,#l1 tr.sec td.tgl{background:#3a3a3a;transition:background .2s;cursor:pointer;}"..
+            "#l1 tr.sec th.hdr{display:table-cell;vertical-align:middle;border-left:4px solid #1fa3ec;border-radius:8px 0 0 8px;padding:8px 10px;font-weight:600;font-size:.95rem;color:#eaeaea;}"..
+            "#l1 tr.sec td.tgl{display:table-cell;vertical-align:middle;text-align:right;border-radius:0 8px 8px 0;padding:0 10px;white-space:nowrap;}"..
+            "#l1 tr.sec:hover th.hdr,#l1 tr.sec:hover td.tgl{background:#444;}"..
+            "#l1 tr.sec a.chev{color:#1fa3ec;text-decoration:none;font-size:1.1rem;padding:4px 2px;display:inline-block;vertical-align:middle;}"..
+            "#l1 tr.sec .pill{vertical-align:middle;}"..
+            "#l1 tr.sub th{padding:3px 10px 3px 26px;color:#ccc;font-weight:400;font-size:.88rem;}"..
+            "#l1 tr.sub td{padding:3px 10px;text-align:right;color:#fff;font-weight:500;font-size:.88rem;}"..
+            "#l1 tr.grp td{padding:8px 10px 2px 26px;color:#8ca0b3;font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-top:1px solid #3e3e3e;}"..
+            "#l1 .stk{display:block;color:#8ca0b3;font-size:.75rem;font-weight:400;}"..
+            "#l1 .pill{display:inline-block;background:#25303d;color:#8bc34a;padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;}"..
+            "#l1 .pill b{color:#8bc34a;font-weight:600;}"..
+            "#l1 .pill b:first-child{color:#7a8aa0;font-weight:400;}"..
+            "#l1 .st{display:inline-block;font-size:1.4rem;line-height:1;vertical-align:middle;margin-right:6px;cursor:pointer;}"..
+            "#l1 .st.wait{filter:grayscale(1);opacity:.75;}"..
+            "#l1 .st.sess{animation:wdsess 1.6s ease-in-out infinite;}"..
+            "#l1 .st.run{animation:wdrun 1s ease-in-out infinite;}"..
+            "@keyframes wdsess{0%,100%{opacity:1}50%{opacity:.3}}"..
+            "@keyframes wdrun{0%,100%{opacity:1}50%{opacity:.3}}"..
+            "#wdtt{position:fixed;z-index:9999;display:none;background:#232a33;border:1px solid #3e3e3e;border-radius:8px;padding:6px 10px;font-size:.8rem;line-height:1.6;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);}"..
+            "#wdtt .ttrow{display:flex;align-items:center;gap:8px;min-width:160px;color:#b8c4cf;}"..
+            "#wdtt .ttrow.cur{color:#8bc34a;}"..
+            "#wdtt .ttmark{display:inline-block;width:16px;text-align:center;}"..
+            "#wdtt .ttic{display:inline-block;width:20px;text-align:center;vertical-align:middle;}"..
+            "#wdtt .ttdrop{display:inline-block;font-size:.9rem;filter:grayscale(1);opacity:.8;vertical-align:-2px;}"..
+            "</style>")
+        var js =
+            # Per-tab per-section expand state lives in the browser URL as one
+            # compact param me (1..9 = channels, c = Common; e.g. me=12c):
+            # every poll from this tab carries its own me, URL is rewritten via
+            # history.replaceState so a refresh keeps the tab's view. No
+            # server-side global flag.
+            "<script>try{" ..
+            "if(typeof window._wdInit==='undefined'){" ..
+              "window._wdInit=true;" ..
+              "var _m=location.search.match(/[?&]me=([0-9c]*)/);_m=_m?_m[1]:'';" ..
+              "window._wdSec={};"
+        for i: 0..(self.NumChannels - 1)
+            js += "window._wdSec['soil" .. str(i + 1) .. "']=_m.indexOf('" .. str(i + 1) .. "')>=0;"
+        end
+        js += "window._wdSec.flow=_m.indexOf('c')>=0;" ..
+              "window._wdEnc=function(){var s='';"
+        for i: 0..(self.NumChannels - 1)
+            js += "if(window._wdSec['soil" .. str(i + 1) .. "'])s+='" .. str(i + 1) .. "';"
+        end
+        js += "if(window._wdSec.flow)s+='c';return s;};" ..
+              "var _la0=window.la;" ..
+              "window.la=function(p){var np=p||'';" ..
+                "if(np.indexOf('me=')===-1){np+='&me='+window._wdEnc();}" ..
+                "_la0(np);};" ..
+              "window._secToggle=function(name){" ..
+                "window._wdSec[name]=!window._wdSec[name];" ..
+                "var u='?me='+window._wdEnc();" ..
+                "try{history.replaceState(null,'',u);}catch(e){}" ..
+                "la('');};" ..
+              "window._wdTT=null;" ..
+              "window._wdShowTT=function(ic,ev){if(ev&&ev.stopPropagation)ev.stopPropagation();var t=window._wdTT;" ..
+                "if(t&&t.style.display!=='none'){t.style.display='none';return;}" ..
+                "if(!t){t=document.createElement('div');t.id='wdtt';document.body.appendChild(t);window._wdTT=t;}" ..
+                "var cls=ic.className.indexOf('run')>=0?'run':ic.className.indexOf('sess')>=0?'sess':'wait';" ..
+                "var R=[['wait','Ожидание'],['sess','Сеанс полива'],['run','Работа насоса']];" ..
+                "var h='';for(var i=0;i<3;i++){var s=R[i][0];" ..
+                "var ic2=s=='wait'?'<span class=\"ttdrop\">💧</span>':(s=='sess'?'⏳':'💦');" ..
+                "h+='<div class=\"ttrow'+(s==cls?' cur':'')+'\"><span class=\"ttmark\">'+(s==cls?'→':'')+'</span><span class=\"ttic\">'+ic2+'</span><span>'+R[i][1]+'</span></div>';}" ..
+                "t.innerHTML=h;t.style.display='block';" ..
+                "var r=ic.getBoundingClientRect();var tw=t.offsetWidth;" ..
+                "var x=r.left-tw-8;if(x<4)x=r.right+8;var y=r.top+r.height/2-t.offsetHeight/2;if(y<4)y=r.top+8;" ..
+                "t.style.left=x+'px';t.style.top=y+'px';};" ..
+              "document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);" ..
+            "}" ..
+            "}catch(e){}</script>"
+        webserver.content_send(js)
         webserver.content_send(
             "<p></p><div style='display:flex;flex-wrap:wrap;gap:4px;align-items:center'>"
             .. "Soil Dry(Raw) <input type='text' id='soil_dry' name='m_soildry' style='width:5em;padding:2px' value='" .. str(self.SoilSensors[0].RawDry) .. "'> "
@@ -1485,9 +1618,82 @@ class Watering
 
 
 
+
+
+
+
+    def web_soil_detail(pi)
+        # Per-channel accordion detail, shared by every soil section: session
+        # status, pump status, dry soak status, dry threshold, session max and
+        # the persist store snapshot under the channel's P{Num} prefix. Same
+        # logic for every channel.
+        import string
+        var plant = self.plants[pi]
+        var num = plant.Num
+        var pre = 'P' + str(num)
+        try
+            var dry_status = "none"
+            if plant.Preset != nil && plant.Preset.Type == 'dry'
+                dry_status = "soak, dose " .. (plant.DrySoakDose != nil ? str(plant.DrySoakDose) : "?")
+            end
+            # Session: active (flooding in progress) / wait. Pump: run|idle;
+            # the live flow rate (ml/min) is shown while the pump runs.
+            var sess = plant.AutofloodInProcess ? "active" : "wait"
+            var pump = plant.PowerN == 1 ? "run" : "idle"
+            if plant.PowerN == 1
+                var rate = self.FlowSensors[0].Rate
+                if rate != nil
+                    pump = pump .. " " .. string.format("%01.1f", rate * 60) .. " ml/min"
+                end
+            end
+            var msg = string.format(
+                      "<tr class='grp'><td colspan='2'>Сеанс</td></tr>"..
+                      "<tr class='sub'><th>Сеанс полива</th><td>%s</td></tr>"..
+                      "<tr class='sub'><th>Вода</th><td>%s</td></tr>",
+                      sess, pump)
+            tasmota.web_send_decimal(msg)
+            msg = string.format(
+                      "<tr class='grp'><td colspan='2'>Размачивание</td></tr>"..
+                      "<tr class='sub'><th>Dry soak</th><td>%s</td></tr>"..
+                      "<tr class='sub'><th>Dry threshold</th><td>%i</td></tr>",
+                      dry_status, plant.DryThreshold)
+            tasmota.web_send_decimal(msg)
+            msg = "<tr class='grp'><td colspan='2'>Текущий сеанс</td></tr>"
+            if plant.SoilMaxHymidity != nil
+                msg += string.format(
+                        "<tr class='sub'><th>SoilHymidity" .. str(num) .. " max</th><td>%i</td></tr>",
+                        plant.SoilMaxHymidity)
+                if plant.SoilMaxHymidityTime != nil
+                    msg += string.format(
+                            "<tr class='sub'><th>SoilHymidity" .. str(num) .. " max time</th><td>%s</td></tr>",
+                            self._TimeStr(plant.SoilMaxHymidityTime))
+                end
+            end
+            var store = self.Store.dump()
+            for k: ['LastFloodVol', 'SoilMaxHymidity', 'SoilMaxHymidityTime',
+                    'SoilHPostFlood', 'SoilHPreFlood']
+                msg += string.format(
+                          "<tr class='sub'><th>Store.%s</th><td>%s</td></tr>",
+                          pre .. k, store[pre .. k])
+            end
+            tasmota.web_send_decimal(msg)
+            msg = "<tr class='grp'><td colspan='2'>Предыдущий сеанс</td></tr>"
+            for k: ['PrevFloodedVol', 'PrevSoilHPostFlood',
+                    'PrevSoilHPreFlood', 'PrevSoilMaxHymidity']
+                msg += string.format(
+                          "<tr class='sub'><th>Store.%s</th><td>%s</td></tr>",
+                          pre .. k, store[pre .. k])
+            end
+            tasmota.web_send_decimal(msg)
+        except .. as e
+            print("web_sensor: detail rows failed " .. e)
+        end
+    end
+
     def web_sensor()
     #- As we can add only one sensor method we will have to combine them besides all other sensor readings in one method -#
     #- each section is guarded: a crash in one must not truncate the rest -#
+        import string
         var msg
 
         try
@@ -1522,20 +1728,21 @@ class Watering
             print("web_sensor: conf toggle failed " .. e)
         end
 
+        # Per-section expand state is per-request, carried in the browser URL
+        # as a single compact param: me=12c (1=soil1, 2=soil2, ..., c=Common
+        # flow, any order, empty/absent = all collapsed). No global flag
+        # (sections and tabs are independent). One char per channel (1..9),
+        # c = Common.
+        var exp_soil = list()
+        var exp_flow = false
         try
-            if webserver.has_arg("m_detail")
-                var v = webserver.arg("m_detail")
-                if v == "1"
-                    self.DetailView = true
-                elif v == "0"
-                    self.DetailView = false
-                else
-                    self.DetailView = !self.DetailView
-                end
-                print("web_sensor: detail view " .. (self.DetailView ? "on" : "off"))
+            var me = webserver.has_arg("me") ? webserver.arg("me") : ""
+            for i: 0..(self.NumChannels - 1)
+                exp_soil.push(string.find(me, str(i + 1)) >= 0)
             end
+            exp_flow = string.find(me, "c") >= 0
         except .. as e
-            print("web_sensor: detail toggle failed " .. e)
+            print("web_sensor: expand args failed " .. e)
         end
 
         try
@@ -1577,90 +1784,30 @@ class Watering
             print("web_sensor: dry soak args failed " .. e)
         end
 
-        import string
-        try
-            msg = string.format(
-                      "{s}FlowSensor Calibration mode{m}%s{e}",
-                      self.FlowSensorCalibration)
-            tasmota.web_send_decimal(msg)
-        except .. as e
-            print("web_sensor: calibration row failed " .. e)
-        end
-
-        try
-            msg = string.format(
-                      "{s}Flooding in process{m}%s{e}",
-                      self.plants[0].AutofloodInProcess)
-            tasmota.web_send_decimal(msg)
-        except .. as e
-            print("web_sensor: flooding row failed " .. e)
-        end
-
-        try
-            var dry_status = "none"
-            if self.plants[0].Preset != nil && self.plants[0].Preset.Type == 'dry'
-                dry_status = "soak, dose " .. (self.plants[0].DrySoakDose != nil ? str(self.plants[0].DrySoakDose) : "?")
-            end
-            msg = string.format(
-                      "{s}Dry soak{m}%s{e}"..
-                      "{s}| Dry threshold{m}%i{e}",
-                      dry_status, self.plants[0].DryThreshold)
-            tasmota.web_send_decimal(msg)
-        except .. as e
-            print("web_sensor: dry soak row failed " .. e)
-        end
-
-        try
-            self.SoilSensors[0].web_sensor(self.DetailView)
-        except .. as e
-            print("web_sensor: soil1 row failed " .. e)
-        end
-
-        # Detail-only rows grouped under the SoilA1Hymidity accordion: session
-        # max plus the persist store snapshot (current session, then previous
-        # session). Channel 1's store keys are shown under their P1 prefix.
-        # TargetDry/TargetWet are omitted - they duplicate rows already emitted
-        # above (soil calibration). SoilMaxHymidity/SoilMaxHymidityTime are the
-        # confirmed values that survive a reboot, so they ARE listed here.
-        if self.DetailView
+        # Per-channel accordions: one section per channel, header + per-channel
+        # detail rows (dry soak/dry threshold/max/Store snapshot) under its own
+        # expansion. Same logic for every channel (see web_soil_detail()).
+        for i: 0..(self.NumChannels - 1)
             try
-                if self.plants[0].SoilMaxHymidity != nil
-                    msg = string.format(
-                            "{s}| SoilHymidity1 max{m}%i{e}",
-                            self.plants[0].SoilMaxHymidity)
-                    if self.plants[0].SoilMaxHymidityTime != nil
-                        msg += string.format(
-                                "{s}| SoilHymidity1 max time{m}%s{e}",
-                                self._TimeStr(self.plants[0].SoilMaxHymidityTime))
-                    end
-                    tasmota.web_send_decimal(msg)
-                end
-                var store = self.Store.dump()
-                for p: ['P1LastFloodVol', 'P1SoilMaxHymidity', 'P1SoilMaxHymidityTime',
-                        'P1SoilHPostFlood', 'P1SoilHPreFlood',
-                        'P1PrevFloodedVol', 'P1PrevSoilHPostFlood',
-                        'P1PrevSoilHPreFlood', 'P1PrevSoilMaxHymidity']
-                    msg = string.format(
-                              "{s}| Store.%s{m}%s{e}",
-                              p, store[p])
-                    tasmota.web_send_decimal(msg)
-                end
+                self.SoilSensors[i].web_sensor(exp_soil[i], 'soil' + str(i + 1), self.plants[i])
             except .. as e
-                print("web_sensor: detail rows failed " .. e)
+                print("web_sensor: soil" .. str(i + 1) .. " row failed " .. e)
             end
-        end
-
-        try
-            self.SoilSensors[1].web_sensor(self.DetailView)
-        except .. as e
-            print("web_sensor: soil2 row failed " .. e)
+            if exp_soil[i]
+                try
+                    self.web_soil_detail(i)
+                except .. as e
+                    print("web_sensor: detail rows failed " .. e)
+                end
+            end
         end
 
         if self.plants[0].LastFloodTime != nil
             try
                 msg = string.format(
-                          "{s}Last flood time{m}%s{e}"..
-                          "{s}Last flood{m}%01.1f ml{e}",
+                          "<tr class='grp'><td colspan='2'>Последний полив</td></tr>"..
+                          "<tr class='sub'><th>Last flood time</th><td>%s</td></tr>"..
+                          "<tr class='sub'><th>Last flood</th><td>%01.1f ml</td></tr>",
                           self._TimeStr(self.plants[0].LastFloodTime),
                           self.FlowSensors[0].Raw2Flow(self.plants[0].LastFloodVol))
                 tasmota.web_send_decimal(msg)
@@ -1670,9 +1817,22 @@ class Watering
         end
 
         try
-            self.FlowSensors[0].web_sensor()
+            self.FlowSensors[0].web_sensor(exp_flow, 'flow')
         except .. as e
             print("web_sensor: flow1 row failed " .. e)
+        end
+
+        # Common detail rows (expanded Common section only): flow calibration mode.
+        # Session/pump state is per-channel and lives in each soil section, not here.
+        if exp_flow
+            try
+                msg = string.format(
+                          "<tr class='sub'><th>FlowSensor Calibration mode</th><td>%s</td></tr>",
+                          self.FlowSensorCalibration)
+                tasmota.web_send_decimal(msg)
+            except .. as e
+                print("web_sensor: common detail rows failed " .. e)
+            end
         end
 
         #print("web_sensor: processed")
@@ -1733,3 +1893,10 @@ print("Add new Watering driver")
 wp1 = Watering()
 print("Watering driver initialized")
 # tasmota.cmd("BrRestart");
+
+
+
+
+
+
+

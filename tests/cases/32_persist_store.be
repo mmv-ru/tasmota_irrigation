@@ -5,6 +5,7 @@ import json
 
 section("store_load_defaults")
 var P1 = wp1.plants[0]
+var P2 = wp1.plants[1]
 
 var st = wp1.Store
 assert_true(st != nil, "Watering exposes a PersistStore")
@@ -122,13 +123,37 @@ assert_true(parsed != nil, "Store cmd emits valid JSON")
 assert_true(parsed.find('P1TargetDry') != nil, "Store JSON contains P1TargetDry")
 assert_true(string.find(SIM['lastresp'], '"P1PrevFloodedVol"') >= 0, "Store JSON contains Prev keys")
 
+section("channels_cmd_and_store_key")
+
+# Channels is a Store variable (default 4) exposed via its own command.
+assert_true(parsed.find('Channels') != nil, "Store dump contains Channels key")
+assert_true(SIM['cmnds'].find('Channels') != nil, "Channels cmd registered")
+
+# empty payload reports the current count
+SIM['lastresp'] = nil
+SIM['cmnds']['Channels']('Channels', 0, '', '')
+assert_eq(SIM['lastresp'], '4', "Channels cmd reports current count")
+
+# out-of-range is rejected, valid range is persisted (restart required)
+SIM['lastresp'] = nil
+SIM['cmnds']['Channels']('Channels', 0, '99', '')
+assert_true(SIM['lastresp'] == nil, "Channels cmd rejects out-of-range")
+SIM['cmnds']['Channels']('Channels', 0, '2', '')
+assert_true(SIM['lastresp'] != nil && string.find(SIM['lastresp'], "restart required") >= 0, "Channels cmd set responds")
+assert_true(wp1.Store.get('Channels') == '2', "Channels value persisted")
+assert_eq(wp1.NumChannels, 4, "NumChannels unchanged until restart")
+wp1.Store.set('Channels', '4')
+wp1.Store.flush(true)
+
 section("web_sensor_store_table")
 
-# Detail view only: Store.* rows live under the SoilA1Hymidity accordion,
-# in explicit current-then-previous order. Duplicate keys (TargetDry/TargetWet)
-# and nil-less keys must NOT appear; SoilMaxHymidity/SoilMaxHymidityTime ARE
-# listed (confirmed values that survive a reboot).
-wp1.DetailView = true
+# Detail (soil1 section expanded, request carries me=1) only:
+# Store.* rows live under the channel-1 accordion, in explicit
+# current-then-previous order. Duplicate keys (TargetDry/TargetWet) and
+# nil-less keys must NOT appear; SoilMaxHymidity/SoilMaxHymidityTime ARE listed
+# (confirmed values that survive a reboot).
+webserver.has_arg = def (name) return name == 'me' end
+webserver.arg = def (name, dflt) return name == 'me' ? '1' : dflt end
 SIM['websend'] = list()
 P1.SoilMaxHymidity = nil
 P1.LastFloodTime = nil
@@ -146,14 +171,54 @@ assert_true(string.find(joined, "Store.P1PrevFloodedVol") < string.find(joined, 
 
 section("store_table_hidden_in_compact")
 
-# compact (DetailView off) must not emit Store.* or max rows at all
-wp1.DetailView = false
+# compact (no me in the request) must not emit Store.* or max rows at all
+webserver.has_arg = def (name) return false end
+webserver.arg = def (name, dflt) return dflt end
 SIM['websend'] = list()
 wp1.web_sensor()
 var cjoined = ""
 for m: SIM['websend'] cjoined = cjoined .. m end
 assert_true(string.find(cjoined, "Store.") < 0, "compact view has no Store.* rows")
 assert_true(string.find(cjoined, "SoilHymidity1 max") < 0, "compact view has no max row")
+
+section("store_table_sections_independent")
+
+# per-section: expanding soil1 must NOT expand soil2. With only me=1 the soil2
+# detail rows (Сухо/Влажно) must be absent, so exactly one "Влажно</th>" (the
+# soil1 one) appears (split yields 2 parts).
+webserver.has_arg = def (name) return name == 'me' end
+webserver.arg = def (name, dflt) return name == 'me' ? '1' : dflt end
+SIM['websend'] = list()
+wp1.web_sensor()
+var ja = ""
+for m: SIM['websend'] ja = ja .. m end
+assert_eq(string.split(ja, "Влажно</th>").size(), 2, "soil2 stays collapsed when only soil1 expanded")
+assert_true(string.find(ja, "Сухо</th>") >= 0, "soil1 detail rows present")
+
+# soil2-only: soil2 expands, soil1 collapses. Each channel's Store rows are
+# under its own P{Num} prefix: soil2 exposes Store.P2*, soil1's P1* stay out.
+webserver.has_arg = def (name) return name == 'me' end
+webserver.arg = def (name, dflt) return name == 'me' ? '2' : dflt end
+SIM['websend'] = list()
+P2.SoilMaxHymidity = 833
+wp1.web_sensor()
+var jc = ""
+for m: SIM['websend'] jc = jc .. m end
+assert_eq(string.split(jc, "Влажно</th>").size(), 2, "soil1 collapses when only soil2 expanded")
+assert_true(string.find(jc, "Store.P2PrevSoilHPreFlood") >= 0, "soil2-only expansion shows soil2's own Store.P2 rows")
+assert_true(string.find(jc, "Store.P1PrevSoilHPreFlood") < 0, "soil2-only expansion keeps soil1 Store.P1 rows out")
+assert_true(string.find(jc, "SoilHymidity2 max") >= 0, "soil2 detail shows its own max")
+
+# both flags set: both soil sections expand (two "Влажно</th>" -> 3 parts)
+webserver.has_arg = def (name) return name == 'me' end
+webserver.arg = def (name, dflt) return name == 'me' ? '12' : dflt end
+SIM['websend'] = list()
+wp1.web_sensor()
+var jb = ""
+for m: SIM['websend'] jb = jb .. m end
+assert_eq(string.split(jb, "Влажно</th>").size(), 3, "both soil sections expanded when both flags set")
+assert_true(string.find(jb, "Store.P1PrevSoilHPreFlood") >= 0, "Store rows present when soil1 expanded")
+assert_true(string.find(jb, "Store.P2PrevSoilHPreFlood") >= 0, "Store rows present when soil2 expanded")
 
 section("deinit_flushes_store")
 

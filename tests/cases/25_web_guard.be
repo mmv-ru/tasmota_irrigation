@@ -8,19 +8,23 @@ wp1.SoilSensors[0].RawEma = nil
 wp1.SoilSensors[1].RawEma = 900
 wp1.plants[0].SoilMaxHymidity = nil
 wp1.plants[0].LastFloodTime = nil
+webserver.has_arg = def (name) return name == 'me' end
+webserver.arg = def (name, dflt) return name == 'me' ? 'c' : dflt end
 SIM['websend'] = list()
 wp1.web_sensor()
 
 var joined = ""
 for m: SIM['websend'] joined = joined + m end
-assert_true(string.find(joined, "Flooding in process") >= 0, "basic rows present")
-assert_true(string.find(joined, "SoilA2Hymidity") >= 0, "soil2 row survived despite soil1 break")
+assert_true(string.find(joined, "class='st wait'") >= 0, "basic rows present (status icon in header)")
+assert_true(string.find(joined, "Канал 2") >= 0, "soil2 row survived despite soil1 break")
 assert_true(string.find(joined, "Water used") >= 0, "flow row survived")
 
 section("web25_max_row_guarded")
 
-# SoilMaxHymidity with time triggers the guarded max-humidity section (detail view)
-wp1.DetailView = true
+# SoilMaxHymidity with time triggers the guarded max-humidity section
+# (soil1 section expanded)
+webserver.has_arg = def (name) return name == 'me' end
+webserver.arg = def (name, dflt) return name == 'me' ? '1' : dflt end
 wp1.plants[0].SoilMaxHymidity = 810
 wp1.plants[0].SoilMaxHymidityTime = SIM['rtc_local']
 SIM['websend'] = list()
