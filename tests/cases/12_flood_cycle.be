@@ -7,15 +7,15 @@ section("flood_cycle_setup")
 SIM['sensors']['ANALOG']['A1'] = 900
 SIM['millis'] = 5000
 wp1.rule_power({'State': 1}, 'POWER1')
-assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=300", "default finish rule")
+assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=200", "default finish rule")
 assert_eq(wp1.plants[0].PowerN, 1, "pump on")
 
 section("counter_reaches_limit")
 
-# counter advances past the flood default (300) -> flooding complete
+# counter advances past the flood default (200) -> flooding complete
 SIM['sensors']['COUNTER']['C1'] = 350
 # rule_flooded fires with the counter value
-wp1.plants[0].rule_flooded(350, "COUNTER#C1>=300")
+wp1.plants[0].rule_flooded(350, "COUNTER#C1>=200")
 assert_true(cmds_include("Power1 0"), "rule_flooded turns pump off")
 
 section("pump_off_compensation")

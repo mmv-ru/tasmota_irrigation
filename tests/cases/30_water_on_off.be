@@ -9,7 +9,7 @@ SIM['millis'] = 1000
 SIM['cmds'] = list()
 wp1.rule_power({'State': 1}, 'POWER1')
 assert_eq(wp1.plants[0].PowerN, 1, "relay on via dispatcher")
-assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=300", "finish rule set")
+assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=200", "finish rule set")
 assert_true(cmds_include("TelePeriod 10"), "fast telemetry during pump")
 
 section("water_on_aborts_when_wet")
@@ -31,7 +31,7 @@ wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
 SIM['cmds'] = list()
 wp1.plants[0].water_on()
 assert_eq(wp1.plants[0].PowerN, 1, "pump on")
-assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=300", "finish rule set")
+assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=200", "finish rule set")
 assert_true(wp1.plants[0].Counter1BeforeStart == 0, "start counter captured")
 assert_true(SIM['timers'].find("ID_ENDFASTTELE") == nil, "no pending fast-tele timer")
 

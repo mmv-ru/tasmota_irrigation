@@ -6,7 +6,7 @@ section("rule_flooded_turns_pump_off")
 
 # counter hit the finish rule -> pump off
 SIM['cmds'] = list()
-wp1.plants[0].rule_flooded(350, "COUNTER#C1>=300")
+wp1.plants[0].rule_flooded(350, "COUNTER#C1>=200")
 assert_true(cmds_include("Power1 0"), "rule_flooded commands Power1 0")
 
 section("autoflood_end_resets_state")

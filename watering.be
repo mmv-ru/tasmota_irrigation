@@ -792,7 +792,7 @@ class Plant
         # When pipes without check valve, backflow - water
         # self.Counter1Backflow = 133
         self.Counter1Backflow = 0
-        self.Counter1FloodDefault = 300
+        self.Counter1FloodDefault = 200
         self.PowerN = 0
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
@@ -908,6 +908,15 @@ class Plant
             # Dry soak cadence: fixed interval + daily volume tracking.
             flood_delay = int(self.Store.get(self.Prefix .. 'SoakInterval')) * 1000
             self.DryDailyTicks.push({'ms': tasmota.millis(), 'ticks': CounterDelta})
+        elif self.LastFloodVol > self.MaxFlood
+            # Session volume cap (normal preset): accumulated water is enough,
+            # close the session now instead of the removed 24h check delay. The
+            # daily scheduler will start a fresh session anyway. Keep the soil
+            # check timer off so a stale one cannot re-open the session.
+            print("Autoflood: session volume over MaxFlood, ending session")
+            tasmota.remove_timer(self._soil_timer_id())
+            self._autoflood_end()
+            return
         end
         tasmota.remove_timer(self._soil_timer_id())
         tasmota.set_timer(flood_delay, /-> self.timer_soil_transition_after_flooded(), self._soil_timer_id())

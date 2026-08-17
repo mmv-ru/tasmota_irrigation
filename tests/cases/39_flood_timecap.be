@@ -26,7 +26,7 @@ assert_eq(P2.AutofloodInProcess, true, "channel 2 session started")
 assert_true(cmds_include("Power2 1"), "channel 2 pump commanded")
 wp1.rule_power({'State': 1}, 'POWER2')
 assert_eq(P2.PowerN, 1, "channel 2 relay ON")
-assert_eq(P2.FinishRule, "COUNTER#C1>=300", "finish rule on the shared counter")
+assert_eq(P2.FinishRule, "COUNTER#C1>=200", "finish rule on the shared counter")
 
 section("time_cap_recorded_on_release")
 

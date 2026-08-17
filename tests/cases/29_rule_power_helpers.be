@@ -51,6 +51,25 @@ wp1.plants[0]._record_flood(100)
 var st3 = SIM['timers']['ID_SOILTRANSITION_AFTERFLOOD_P1']
 assert_eq(st3['delay'], 2*60*60*1000, "timer re-armed to 2h interval")
 
+section("record_flood_ends_session_over_maxflood")
+
+# accumulated volume above MaxFlood closes the normal session instead of
+# arming the 2h soil check (the removed 24h delay behaviour) - the next day's
+# scheduler starts a fresh session anyway. The pending soil timer is removed.
+wp1.plants[0].MaxFlood = 2000
+wp1.plants[0].LastFloodVol = 0
+wp1.plants[0].AutofloodInProcess = true
+wp1.plants[0]._record_flood(1800)
+assert_eq(wp1.plants[0].LastFloodVol, 1800, "volume accumulated below the cap")
+assert_true(SIM['timers'].find("ID_SOILTRANSITION_AFTERFLOOD_P1") != nil, "soil timer armed below the cap")
+assert_eq(wp1.plants[0].AutofloodInProcess, true, "session stays active below the cap")
+
+wp1.plants[0]._record_flood(300)
+assert_eq(wp1.plants[0].LastFloodVol, 2100, "volume accumulated over the cap")
+assert_eq(wp1.plants[0].AutofloodInProcess, false, "session closed by the volume cap")
+assert_eq(wp1.plants[0].PrevFloodedVol, 2100, "capped volume archived as PrevFloodedVol")
+assert_true(SIM['timers'].find("ID_SOILTRANSITION_AFTERFLOOD_P1") == nil, "soil timer removed on cap")
+
 section("end_session_no_water_resets_state")
 
 wp1.plants[0].PauseSoilMaxStat = true
@@ -64,6 +83,8 @@ section("rule_power_off_backflow_zero_session")
 # full OFF-branch through rule_power: delta above backflow records a flood
 SIM['sensors']['COUNTER']['C1'] = 200
 wp1.plants[0].Counter1BeforeStart = 0
+wp1.plants[0].LastFloodVol = 0
+wp1.plants[0].AutofloodInProcess = true
 sim_timers_before = SIM['timers'].size()
 wp1.rule_power({'State': 0}, 'POWER1')
 assert_true(cmds_include("counter1 200"), "counter preset via OFF branch")
