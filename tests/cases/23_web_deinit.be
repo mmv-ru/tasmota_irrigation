@@ -10,7 +10,7 @@ wp1.web_add_config_button()
 var joined = ""
 for m: SIM['webhtml'] joined = joined .. m end
 assert_true(string.find(joined, "Flow Sensor Calibration") >= 0, "calibration button")
-assert_true(string.find(joined, "Reset water counter 1") >= 0, "reset counter button")
+assert_true(string.find(joined, "Reset water counter") < 0, "reset counter button moved off the main page into Common detail")
 assert_true(string.find(joined, "Toggle Conf") >= 0, "toggle conf button")
 
 section("deinit_cleans_rules_and_drivers")

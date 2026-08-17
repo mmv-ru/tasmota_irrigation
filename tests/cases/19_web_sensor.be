@@ -67,6 +67,9 @@ assert_true(string.find(j4, "Common") >= 0, "Common section label")
 assert_true(string.find(j4, "pulse/s") >= 0, "flow detail row present when me=c")
 assert_true(string.find(j4, "ml/min") >= 0, "flow rate row present when me=c")
 assert_true(string.find(j4, "FlowSensor Calibration mode") >= 0, "calibration row under Common when me=c")
+assert_true(string.find(j4, "Water counter") >= 0, "reset counter row under Common when me=c")
+assert_true(string.find(j4, "confirm(") >= 0, "reset counter row carries a JS confirm popup")
+assert_true(string.find(j4, "m_reset_water_counter_1") >= 0, "reset counter row posts the reset arg")
 assert_true(string.find(j4, "Сеанс полива</th>") < 0, "session row is expanded-soil detail only (soil collapsed with me=c)")
 
 section("web_sensor_flow_collapsed")
@@ -80,6 +83,7 @@ wp1.web_sensor()
 var j5 = ""
 for m: SIM['websend'] j5 = j5 + m end
 assert_true(string.find(j5, "pulse/s") < 0, "no flow detail row when me= (collapsed)")
+assert_true(string.find(j5, "Water counter") < 0, "no reset counter row when me= (collapsed)")
 assert_true(string.find(j5, "Сеанс полива</th>") < 0, "no session row in compact")
 assert_true(string.find(j5, "Вода</th>") < 0, "no pump row in compact")
 assert_eq(string.split(j5, "class='st wait'").size(), 5, "waiting status icon shown in every channel header (4 channels)")

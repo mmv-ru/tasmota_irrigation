@@ -1514,7 +1514,6 @@ class Watering
 
     def web_add_main_button()
         webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
-        webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_1=1\");'>Reset water counter 1</button>")
         # Section design (variant B): band headers with badges and a status
         # icon, text chevrons (▼/▲, no <button> so it does not look like
         # Play/Run), indented sub-rows. Applied via an injected <style> block:
@@ -1536,6 +1535,9 @@ class Watering
             "#l1 tr.sub th{padding:3px 10px 3px 26px;color:#ccc;font-weight:400;font-size:.88rem;}"..
             "#l1 tr.sub td{padding:3px 10px;text-align:right;color:#fff;font-weight:500;font-size:.88rem;}"..
             "#l1 tr.grp td{padding:8px 10px 2px 26px;color:#8ca0b3;font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-top:1px solid #3e3e3e;}"..
+            "#l1 a.wcbtn{display:inline-block;background:#1fa3ec;color:#0a0a0a;padding:2px 12px;border-radius:10px;font-size:.8rem;font-weight:600;text-decoration:none;cursor:pointer;}"..
+            "#l1 a.wcbtn:hover{background:#33b1f5;}"..
+            "#l1 a.wcbtn:active{background:#0f8fd6;}"..
             "#l1 .stk{display:block;color:#8ca0b3;font-size:.75rem;font-weight:400;}"..
             "#l1 .pill{display:inline-block;background:#25303d;color:#8bc34a;padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin-right:4px;}"..
             "#l1 .pill b{color:#8bc34a;font-weight:600;}"..
@@ -1824,7 +1826,8 @@ class Watering
             print("web_sensor: flow1 row failed " .. e)
         end
 
-        # Common detail rows (expanded Common section only): flow calibration mode.
+        # Common detail rows (expanded Common section only): flow calibration mode
+        # and the reset-water-counter action (the main-page button was moved here).
         # Session/pump state is per-channel and lives in each soil section, not here.
         if exp_flow
             try
@@ -1834,6 +1837,14 @@ class Watering
                 tasmota.web_send_decimal(msg)
             except .. as e
                 print("web_sensor: common detail rows failed " .. e)
+            end
+            try
+                msg = string.format(
+                          "<tr class='grp'><td colspan='2'>Сброс</td></tr>"..
+                          "<tr class='sub'><th>Water counter</th><td><a class='wcbtn' href='#' onclick='if(confirm(\"Сбросить счётчик воды?\")){la(\"&m_reset_water_counter_1=1\");}return false;'>Reset</a></td></tr>")
+                tasmota.web_send_decimal(msg)
+            except .. as e
+                print("web_sensor: reset counter row failed " .. e)
             end
         end
 
