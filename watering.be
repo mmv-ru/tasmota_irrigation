@@ -20,6 +20,19 @@ def EMA(oldEMA, N, NewValue)
     return oldEMA*(1-k) + NewValue*k
 end
 
+# Web rendering helpers. The whole web UI is hand-built HTML emitted via
+# tasmota.web_send_decimal(); these two cover the two <tr> templates used
+# everywhere (sub-row and group header) so a label/style change lives in one
+# place instead of ~30 inline <tr> literals. Output is byte-identical to the
+# inline markup they replace.
+def wrow(label, value)
+    return "<tr class='sub'><th>" .. label .. "</th><td>" .. value .. "</td></tr>"
+end
+
+def wgrp(label)
+    return "<tr class='grp'><td colspan='2'>" .. label .. "</td></tr>"
+end
+
 class AbstractSensor
     var Name
     var SensorID
@@ -54,17 +67,6 @@ class AbstractSensor
             return
         end
         self.Raw = sensors[key0][self.SensorID[1]]
-    end
-
-
-
-    def web_sensor()
-        import string
-        var msg
-        msg  = string.format(
-            "{s}" .. self.Name .. "{e}",
-            self.SensorID[1])
-        tasmota.web_send_decimal(msg)
     end
 end
 
@@ -285,10 +287,10 @@ class SoilSensor: AbstractSensor
                     "<span class='pill'><b>влажно</b> " .. str(self.RawWet) .. "</span></span>" ..
                     "</th><td class='tgl'><a class='chev' href='#' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. arrow .. "</a></td></tr>"
         if expanded
-            msg = msg .. "<tr class='grp'><td colspan='2'>Уставки</td></tr>"
+            msg = msg .. wgrp("Уставки")
             msg = msg .. string.format(
-                "<tr class='sub'><th>Сухо</th><td>%01.2f raw<br/><span class='stk'>%01.1f%% u</span></td></tr>"..
-                "<tr class='sub'><th>Влажно</th><td>%01.2f raw<br/><span class='stk'>%01.1f%% u</span></td></tr>",
+                wrow("Сухо", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>") ..
+                wrow("Влажно", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>"),
                 self.RawDry, self.Raw2Hu(self.RawDry),
                 self.RawWet, self.Raw2Hu(self.RawWet)
                 )
@@ -298,12 +300,12 @@ class SoilSensor: AbstractSensor
             # document.body (outside #l1) so it survives the 2.3s polling redraw;
             # see _wdSettingsOpen in web_add_main_button().
             msg = msg .. string.format(
-                "<tr class='sub'><th>Настройки порогов</th><td><a class='wcbtn' "..
-                "data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' "..
-                "onclick='_wdSettingsOpen(this);return false;'>⚙</a></td></tr>",
+                wrow("Настройки порогов",
+                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' "..
+                     "onclick='_wdSettingsOpen(this);return false;'>⚙</a>"),
                 plant.Num, self.RawDry, self.RawWet,
                 plant.DryThreshold, str(self.Store.get(self.Prefix .. 'SoakStartDose')))
-            msg = msg .. "<tr class='grp'><td colspan='2'>Датчик</td></tr>"
+            msg = msg .. wgrp("Датчик")
             # Values may be nil until the first sensor Update (unconnected
             # channels). Guard each one: show "nil" instead of crashing the
             # whole section (which would drop the header and make the accordion
@@ -313,12 +315,10 @@ class SoilSensor: AbstractSensor
             var hu = self.RawEma != nil ? string.format("%01.1f%%", self.Raw2Hu(self.RawEma)) : "nil"
             var mv = self.Raw != nil ? string.format("%01.1f mV", self.Raw2mV(self.Raw)) : "nil"
             msg = msg .. string.format(
-                "<tr class='sub'><th>Raw</th><td>%s</td></tr>" ..
-                "<tr class='sub'><th>Raw EMA(%i)</th><td>%s</td></tr>",
+                wrow("Raw", "%s") .. wrow("Raw EMA(%i)", "%s"),
                 rawv, self.EMAN, rawema)
             msg = msg .. string.format(
-                "<tr class='sub'><th>Hymidity u</th><td>%s</td></tr>"..
-                "<tr class='sub'><th>mV</th><td>%s</td></tr>",
+                wrow("Hymidity u", "%s") .. wrow("mV", "%s"),
                 hu, mv)
         else
             # Compact view: no rows — Raw EMA is already in the header pill
@@ -444,12 +444,11 @@ class FlowSensor: AbstractSensor
         msg = "<tr class='sec'><th class='hdr' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. nm ..
               "</th><td class='tgl'><a class='chev' href='#' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. arrow .. "</a></td></tr>"
         msg = msg .. string.format(
-                  "<tr class='sub'><th>Water used</th><td>%01.1f ml</td></tr>",
+                  wrow("Water used", "%01.1f ml"),
                   self.Raw2Flow(self.Raw))
         if expanded
             msg = msg .. string.format(
-                      "<tr class='sub'><th>Water flow</th><td>%i pulse/s</td></tr>"..
-                      "<tr class='sub'><th>Water flow</th><td>%01.1f ml/min</td></tr>",
+                      wrow("Water flow", "%i pulse/s") .. wrow("Water flow", "%01.1f ml/min"),
                       self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
         end
 
@@ -1534,137 +1533,152 @@ class Watering
     def web_add_main_button()
         webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
         # Section design (variant B): band headers with badges and a status
-        # icon, text chevrons (▼/▲, no <button> so it does not look like
-        # Play/Run), indented sub-rows. Applied via an injected <style> block:
-        # la() only rewrites the {s}/{m}/{e} tokens, the rest of the response
-        # lands in #l1 verbatim, so CSS classes on our raw <tr> work.
-        webserver.content_send(
-            "<style>"..
-            "#l1 table{border-collapse:separate;border-spacing:0;}"..
-            "#l1 tr.sec{display:table-row;width:100%;}"..
-            "#l1 tr.sec + tr td[colspan='2'] hr{display:none;}"..
-            "#l1 tr.sec + tr td[colspan='2']{height:2px;line-height:2px;}"..
-            "#l1 tr.sec th.hdr,#l1 tr.sec td.tgl{background:#3a3a3a;transition:background .2s;cursor:pointer;}"..
-            "#l1 tr.sec th.hdr{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;vertical-align:middle;border-left:4px solid #1fa3ec;border-radius:8px 0 0 8px;padding:8px 10px;font-weight:600;font-size:.95rem;color:#eaeaea;}"..
-            "#l1 tr.sec th.hdr .params{margin-left:auto;}"..
-            "#l1 tr.sec td.tgl{display:table-cell;vertical-align:middle;text-align:right;border-radius:0 8px 8px 0;padding:0 10px;white-space:nowrap;}"..
-            "#l1 tr.sec:hover th.hdr,#l1 tr.sec:hover td.tgl{background:#444;}"..
-            "#l1 tr.sec a.chev{color:#1fa3ec;text-decoration:none;font-size:1.1rem;padding:4px 2px;display:inline-block;vertical-align:middle;}"..
-            "#l1 tr.sec .pill{vertical-align:middle;}"..
-            "#l1 tr.sub th{padding:3px 10px 3px 26px;color:#ccc;font-weight:400;font-size:.88rem;}"..
-            "#l1 tr.sub td{padding:3px 10px;text-align:right;color:#fff;font-weight:500;font-size:.88rem;}"..
-            "#l1 tr.grp td{padding:8px 10px 2px 26px;color:#8ca0b3;font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-top:1px solid #3e3e3e;}"..
-            "#l1 a.wcbtn{display:inline-block;background:#1fa3ec;color:#0a0a0a;padding:2px 12px;border-radius:10px;font-size:.8rem;font-weight:600;text-decoration:none;cursor:pointer;}"..
-            "#l1 a.wcbtn:hover{background:#33b1f5;}"..
-            "#l1 a.wcbtn:active{background:#0f8fd6;}"..
-            "#l1 .stk{display:block;color:#8ca0b3;font-size:.75rem;font-weight:400;}"..
-            "#l1 .pill{display:inline-block;background:#25303d;color:#8bc34a;padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin-right:4px;}"..
-            "#l1 .pill b{color:#8bc34a;font-weight:600;}"..
-            "#l1 .pill b:first-child{color:#7a8aa0;font-weight:400;}"..
-            "#l1 .st{display:inline-block;font-size:1.4rem;line-height:1;vertical-align:middle;margin-right:6px;cursor:pointer;}"..
-            "#l1 .st.wait{filter:grayscale(1);opacity:.75;}"..
-            "#l1 .st.sess{animation:wdsess 1.6s ease-in-out infinite;}"..
-            "#l1 .st.run{animation:wdrun 1s ease-in-out infinite;}"..
-            "@keyframes wdsess{0%,100%{opacity:1}50%{opacity:.3}}"..
-            "@keyframes wdrun{0%,100%{opacity:1}50%{opacity:.3}}"..
-            "#wdtt{position:fixed;z-index:9999;display:none;background:#232a33;border:1px solid #3e3e3e;border-radius:8px;padding:6px 10px;font-size:.8rem;line-height:1.6;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);}"..
-            "#wdtt .ttrow{display:flex;align-items:center;gap:8px;min-width:160px;color:#b8c4cf;}"..
-            "#wdtt .ttrow.cur{color:#8bc34a;}"..
-            "#wdtt .ttmark{display:inline-block;width:16px;text-align:center;}"..
-            "#wdtt .ttic{display:inline-block;width:20px;text-align:center;vertical-align:middle;}"..
-            "#wdtt .ttdrop{display:inline-block;font-size:.9rem;filter:grayscale(1);opacity:.8;vertical-align:-2px;}"..
-            "#wdsv{position:fixed;z-index:9998;display:none;inset:0;background:rgba(0,0,0,.55);align-items:center;justify-content:center;}"..
-            "#wdsv.open{display:flex;}"..
-            "#wdsv .box{background:#1b2127;border:1px solid #3e3e3e;border-radius:12px;min-width:260px;box-shadow:0 6px 24px rgba(0,0,0,.5);}"..
-            "#wdsv .hd{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #3e3e3e;color:#eaeaea;font-weight:600;}"..
-            "#wdsv .hd a{color:#8ca0b3;text-decoration:none;font-size:1.1rem;cursor:pointer;}"..
-            "#wdsv .bd{padding:10px 14px;display:flex;flex-direction:column;gap:8px;}"..
-            "#wdsv .bd label{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#b8c4cf;font-size:.85rem;}"..
-            "#wdsv .bd input{width:7em;padding:3px 6px;background:#12161b;color:#fff;border:1px solid #3e3e3e;border-radius:6px;text-align:right;}"..
-            "#wdsv .ft{display:flex;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid #3e3e3e;}"..
-            "#wdsv a.wcbtn{margin-left:0;}"..
-            "</style>")
-        var js =
+        # Styled via an injected <style> block (la() only rewrites {s}/{m}/{e},
+        # everything else lands in #l1 verbatim). CSS rules are kept as a list
+        # of strings, one rule per element, joined once — avoids the old
+        # ..-monolith where a color change meant editing 5 inline literals.
+        # Palette lives in CSS variables (:root) so restyling is one line.
+        var css = [
+            "<style>",
+            ":root{"..
+              "--wd-acc:#1fa3ec;--wd-acc-h:#33b1f5;--wd-acc-a:#0f8fd6;"..
+              "--wd-green:#8bc34a;--wd-pill-bg:#25303d;--wd-btn-tx:#0a0a0a;"..
+              "--wd-bg-hdr:#3a3a3a;--wd-bg-hdr-h:#444;"..
+              "--wd-tx:#eaeaea;--wd-tx-sub:#ccc;--wd-tx-grp:#8ca0b3;--wd-tx-pill:#7a8aa0;--wd-tx-tt:#b8c4cf;"..
+              "--wd-bd:#3e3e3e;--wd-pop-bg:#1b2127;--wd-tt-bg:#232a33;--wd-in-bg:#12161b;}",
+            # section bands (headers + chevrons)
+            "#l1 table{border-collapse:separate;border-spacing:0;}",
+            "#l1 tr.sec{display:table-row;width:100%;}",
+            "#l1 tr.sec + tr td[colspan='2'] hr{display:none;}",
+            "#l1 tr.sec + tr td[colspan='2']{height:2px;line-height:2px;}",
+            "#l1 tr.sec th.hdr,#l1 tr.sec td.tgl{background:var(--wd-bg-hdr);transition:background .2s;cursor:pointer;}",
+            "#l1 tr.sec th.hdr{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;vertical-align:middle;border-left:4px solid var(--wd-acc);border-radius:8px 0 0 8px;padding:8px 10px;font-weight:600;font-size:.95rem;color:var(--wd-tx);}",
+            "#l1 tr.sec th.hdr .params{margin-left:auto;}",
+            "#l1 tr.sec td.tgl{display:table-cell;vertical-align:middle;text-align:right;border-radius:0 8px 8px 0;padding:0 10px;white-space:nowrap;}",
+            "#l1 tr.sec:hover th.hdr,#l1 tr.sec:hover td.tgl{background:var(--wd-bg-hdr-h);}",
+            "#l1 tr.sec a.chev{color:var(--wd-acc);text-decoration:none;font-size:1.1rem;padding:4px 2px;display:inline-block;vertical-align:middle;}",
+            "#l1 tr.sec .pill{vertical-align:middle;}",
+            # sub rows / group headers / buttons
+            "#l1 tr.sub th{padding:3px 10px 3px 26px;color:var(--wd-tx-sub);font-weight:400;font-size:.88rem;}",
+            "#l1 tr.sub td{padding:3px 10px;text-align:right;color:#fff;font-weight:500;font-size:.88rem;}",
+            "#l1 tr.grp td{padding:8px 10px 2px 26px;color:var(--wd-tx-grp);font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-top:1px solid var(--wd-bd);}",
+            "#l1 a.wcbtn{display:inline-block;background:var(--wd-acc);color:var(--wd-btn-tx);padding:2px 12px;border-radius:10px;font-size:.8rem;font-weight:600;text-decoration:none;cursor:pointer;}",
+            "#l1 a.wcbtn:hover{background:var(--wd-acc-h);}",
+            "#l1 a.wcbtn:active{background:var(--wd-acc-a);}",
+            "#l1 .stk{display:block;color:var(--wd-tx-grp);font-size:.75rem;font-weight:400;}",
+            "#l1 .pill{display:inline-block;background:var(--wd-pill-bg);color:var(--wd-green);padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin-right:4px;}",
+            "#l1 .pill b{color:var(--wd-green);font-weight:600;}",
+            "#l1 .pill b:first-child{color:var(--wd-tx-pill);font-weight:400;}",
+            # status icons (wait/sess/run) + pulse animations
+            "#l1 .st{display:inline-block;font-size:1.4rem;line-height:1;vertical-align:middle;margin-right:6px;cursor:pointer;}",
+            "#l1 .st.wait{filter:grayscale(1);opacity:.75;}",
+            "#l1 .st.sess{animation:wdsess 1.6s ease-in-out infinite;}",
+            "#l1 .st.run{animation:wdrun 1s ease-in-out infinite;}",
+            "@keyframes wdsess{0%,100%{opacity:1}50%{opacity:.3}}",
+            "@keyframes wdrun{0%,100%{opacity:1}50%{opacity:.3}}",
+            # status tooltip (#wdtt)
+            "#wdtt{position:fixed;z-index:9999;display:none;background:var(--wd-tt-bg);border:1px solid var(--wd-bd);border-radius:8px;padding:6px 10px;font-size:.8rem;line-height:1.6;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);}",
+            "#wdtt .ttrow{display:flex;align-items:center;gap:8px;min-width:160px;color:var(--wd-tx-tt);}",
+            "#wdtt .ttrow.cur{color:var(--wd-green);}",
+            "#wdtt .ttmark{display:inline-block;width:16px;text-align:center;}",
+            "#wdtt .ttic{display:inline-block;width:20px;text-align:center;vertical-align:middle;}",
+            "#wdtt .ttdrop{display:inline-block;font-size:.9rem;filter:grayscale(1);opacity:.8;vertical-align:-2px;}",
+            # per-channel settings popup (#wdsv)
+            "#wdsv{position:fixed;z-index:9998;display:none;inset:0;background:rgba(0,0,0,.55);align-items:center;justify-content:center;}",
+            "#wdsv.open{display:flex;}",
+            "#wdsv .box{background:var(--wd-pop-bg);border:1px solid var(--wd-bd);border-radius:12px;min-width:260px;box-shadow:0 6px 24px rgba(0,0,0,.5);}",
+            "#wdsv .hd{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--wd-bd);color:var(--wd-tx);font-weight:600;}",
+            "#wdsv .hd a{color:var(--wd-tx-grp);text-decoration:none;font-size:1.1rem;cursor:pointer;}",
+            "#wdsv .bd{padding:10px 14px;display:flex;flex-direction:column;gap:8px;}",
+            "#wdsv .bd label{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--wd-tx-tt);font-size:.85rem;}",
+            "#wdsv .bd input{width:7em;padding:3px 6px;background:var(--wd-in-bg);color:#fff;border:1px solid var(--wd-bd);border-radius:6px;text-align:right;}",
+            "#wdsv .ft{display:flex;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid var(--wd-bd);}",
+            "#wdsv a.wcbtn{margin-left:0;}",
+            "</style>",
+        ]
+        var style = ""
+        for c: css style = style .. c end
+        webserver.content_send(style)
+        # Script inject, same list-of-strings approach as the CSS above. Keeps
+        # the Berry-level `..` concatenation out of the JS source so a JS
+        # string containing quotes needs no hand-audited escape matrix.
+        var jsp = [
             # Per-tab per-section expand state lives in the browser URL as one
             # compact param me (1..9 = channels, c = Common; e.g. me=12c):
             # every poll from this tab carries its own me, URL is rewritten via
             # history.replaceState so a refresh keeps the tab's view. No
             # server-side global flag.
-            "<script>try{" ..
-            "if(typeof window._wdInit==='undefined'){" ..
-              "window._wdInit=true;" ..
-              "var _m=location.search.match(/[?&]me=([0-9c]*)/);_m=_m?_m[1]:'';" ..
-              "window._wdSec={};"
+            "<script>try{",
+            "if(typeof window._wdInit==='undefined'){",
+              "window._wdInit=true;",
+              "var _m=location.search.match(/[?&]me=([0-9c]*)/);_m=_m?_m[1]:'';",
+              "window._wdSec={};",
+        ]
         for i: 0..(self.NumChannels - 1)
-            js += "window._wdSec['soil" .. str(i + 1) .. "']=_m.indexOf('" .. str(i + 1) .. "')>=0;"
+            jsp.push("window._wdSec['soil" .. str(i + 1) .. "']=_m.indexOf('" .. str(i + 1) .. "')>=0;")
         end
-        js += "window._wdSec.flow=_m.indexOf('c')>=0;" ..
-              "window._wdEnc=function(){var s='';"
+        jsp.push("window._wdSec.flow=_m.indexOf('c')>=0;")
+        jsp.push("window._wdEnc=function(){var s='';")
         for i: 0..(self.NumChannels - 1)
-            js += "if(window._wdSec['soil" .. str(i + 1) .. "'])s+='" .. str(i + 1) .. "';"
+            jsp.push("if(window._wdSec['soil" .. str(i + 1) .. "'])s+='" .. str(i + 1) .. "';")
         end
-        js += "if(window._wdSec.flow)s+='c';return s;};" ..
-              "var _la0=window.la;" ..
-              "window.la=function(p){var np=p||'';" ..
-                "if(np.indexOf('me=')===-1){np+='&me='+window._wdEnc();}" ..
-                "_la0(np);};" ..
-              "window._secToggle=function(name){" ..
-                "window._wdSec[name]=!window._wdSec[name];" ..
-                "var u='?me='+window._wdEnc();" ..
-                "try{history.replaceState(null,'',u);}catch(e){}" ..
-                "la('');};" ..
-              "window._wdTT=null;" ..
-              "window._wdShowTT=function(ic,ev){if(ev&&ev.stopPropagation)ev.stopPropagation();var t=window._wdTT;" ..
-                "if(t&&t.style.display!=='none'){t.style.display='none';return;}" ..
-                "if(!t){t=document.createElement('div');t.id='wdtt';document.body.appendChild(t);window._wdTT=t;}" ..
-                "var cls=ic.className.indexOf('run')>=0?'run':ic.className.indexOf('sess')>=0?'sess':'wait';" ..
-                "var R=[['wait','Ожидание'],['sess','Сеанс полива'],['run','Работа насоса']];" ..
-                "var h='';for(var i=0;i<3;i++){var s=R[i][0];" ..
-                "var ic2=s=='wait'?'<span class=\"ttdrop\">💧</span>':(s=='sess'?'⏳':'💦');" ..
-                "h+='<div class=\"ttrow'+(s==cls?' cur':'')+'\"><span class=\"ttmark\">'+(s==cls?'→':'')+'</span><span class=\"ttic\">'+ic2+'</span><span>'+R[i][1]+'</span></div>';}" ..
-                "t.innerHTML=h;t.style.display='block';" ..
-                "var r=ic.getBoundingClientRect();var tw=t.offsetWidth;" ..
-                "var x=r.left-tw-8;if(x<4)x=r.right+8;var y=r.top+r.height/2-t.offsetHeight/2;if(y<4)y=r.top+8;" ..
-                "t.style.left=x+'px';t.style.top=y+'px';};" ..
-              "document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);" ..
-              "window._wdSett=null;" ..
-              "window._wdSettingsOpen=function(a){" ..
-                "if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';d.innerHTML=" ..
-                  "'<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div>'" ..
-                  "+'<div class=\"bd\">'" ..
-                  "+'<label>Soil Dry(Raw) <input id=\"wds_dry\" type=\"text\"></label>'" ..
-                  "+'<label>Soil Wet(Raw) <input id=\"wds_wet\" type=\"text\"></label>'" ..
-                  "+'<label>Dry threshold(Raw) <input id=\"wds_thr\" type=\"text\"></label>'" ..
-                  "+'<label>Soak start dose <input id=\"wds_dose\" type=\"text\"></label>'" ..
-                  "+'</div><div class=\"ft\">'" ..
-                  "+'<a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsSave();return false;\">Сохранить</a>'" ..
-                  "+'<a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsClose();return false;\">Отмена</a>'" ..
-                  "+'</div></div>';document.body.appendChild(d);window._wdSett=d;}" ..
-                "window._wdSett._num=a.getAttribute('data-num');" ..
-                "eb('wds_dry').value=a.getAttribute('data-dry');" ..
-                "eb('wds_wet').value=a.getAttribute('data-wet');" ..
-                "eb('wds_thr').value=a.getAttribute('data-thr');" ..
-                "eb('wds_dose').value=a.getAttribute('data-dose');" ..
-                "window._wdSett.className+=' open';};" ..
-              "window._wdSettingsClose=function(){if(window._wdSett)window._wdSett.className=window._wdSett.className.replace(' open','');};" ..
-              "window._wdSettingsSave=function(){var n=window._wdSett._num;" ..
-                "la('&m_soildry_'+n+'='+encodeURIComponent(eb('wds_dry').value)+" ..
-                "'&m_soilwet_'+n+'='+encodeURIComponent(eb('wds_wet').value)+" ..
-                "'&m_drythr_'+n+'='+encodeURIComponent(eb('wds_thr').value)+" ..
-                "'&m_soakdose_'+n+'='+encodeURIComponent(eb('wds_dose').value));" ..
-                "window._wdSettingsClose();};" ..
-            "}" ..
-            "}catch(e){}</script>"
+        jsp.push("if(window._wdSec.flow)s+='c';return s;};")
+        jsp.push("var _la0=window.la;")
+        jsp.push("window.la=function(p){var np=p||'';")
+        jsp.push("if(np.indexOf('me=')===-1){np+='&me='+window._wdEnc();}")
+        jsp.push("_la0(np);};")
+        jsp.push("window._secToggle=function(name){")
+        jsp.push("window._wdSec[name]=!window._wdSec[name];")
+        jsp.push("var u='?me='+window._wdEnc();")
+        jsp.push("try{history.replaceState(null,'',u);}catch(e){}")
+        jsp.push("la('');};")
+        jsp.push("window._wdTT=null;")
+        jsp.push("window._wdShowTT=function(ic,ev){if(ev&&ev.stopPropagation)ev.stopPropagation();var t=window._wdTT;")
+        jsp.push("if(t&&t.style.display!=='none'){t.style.display='none';return;}")
+        jsp.push("if(!t){t=document.createElement('div');t.id='wdtt';document.body.appendChild(t);window._wdTT=t;}")
+        jsp.push("var cls=ic.className.indexOf('run')>=0?'run':ic.className.indexOf('sess')>=0?'sess':'wait';")
+        jsp.push("var R=[['wait','Ожидание'],['sess','Сеанс полива'],['run','Работа насоса']];")
+        jsp.push("var h='';for(var i=0;i<3;i++){var s=R[i][0];")
+        jsp.push("var ic2=s=='wait'?'<span class=\"ttdrop\">💧</span>':(s=='sess'?'⏳':'💦');")
+        jsp.push("h+='<div class=\"ttrow'+(s==cls?' cur':'')+'\"><span class=\"ttmark\">'+(s==cls?'→':'')+'</span><span class=\"ttic\">'+ic2+'</span><span>'+R[i][1]+'</span></div>';}")
+        jsp.push("t.innerHTML=h;t.style.display='block';")
+        jsp.push("var r=ic.getBoundingClientRect();var tw=t.offsetWidth;")
+        jsp.push("var x=r.left-tw-8;if(x<4)x=r.right+8;var y=r.top+r.height/2-t.offsetHeight/2;if(y<4)y=r.top+8;")
+        jsp.push("t.style.left=x+'px';t.style.top=y+'px';};")
+        jsp.push("document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);")
+        jsp.push("window._wdSett=null;")
+        jsp.push("window._wdSettingsOpen=function(a){")
+        jsp.push("if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';d.innerHTML=")
+        jsp.push("'<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div>'")
+        jsp.push("+'<div class=\"bd\">'")
+        jsp.push("+'<label>Soil Dry(Raw) <input id=\"wds_dry\" type=\"text\"></label>'")
+        jsp.push("+'<label>Soil Wet(Raw) <input id=\"wds_wet\" type=\"text\"></label>'")
+        jsp.push("+'<label>Dry threshold(Raw) <input id=\"wds_thr\" type=\"text\"></label>'")
+        jsp.push("+'<label>Soak start dose <input id=\"wds_dose\" type=\"text\"></label>'")
+        jsp.push("+'</div><div class=\"ft\">'")
+        jsp.push("+'<a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsSave();return false;\">Сохранить</a>'")
+        jsp.push("+'<a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsClose();return false;\">Отмена</a>'")
+        jsp.push("+'</div></div>';document.body.appendChild(d);window._wdSett=d;}")
+        jsp.push("window._wdSett._num=a.getAttribute('data-num');")
+        jsp.push("eb('wds_dry').value=a.getAttribute('data-dry');")
+        jsp.push("eb('wds_wet').value=a.getAttribute('data-wet');")
+        jsp.push("eb('wds_thr').value=a.getAttribute('data-thr');")
+        jsp.push("eb('wds_dose').value=a.getAttribute('data-dose');")
+        jsp.push("window._wdSett.className+=' open';};")
+        jsp.push("window._wdSettingsClose=function(){if(window._wdSett)window._wdSett.className=window._wdSett.className.replace(' open','');};")
+        jsp.push("window._wdSettingsSave=function(){var n=window._wdSett._num;")
+        jsp.push("la('&m_soildry_'+n+'='+encodeURIComponent(eb('wds_dry').value)+")
+        jsp.push("'&m_soilwet_'+n+'='+encodeURIComponent(eb('wds_wet').value)+")
+        jsp.push("'&m_drythr_'+n+'='+encodeURIComponent(eb('wds_thr').value)+")
+        jsp.push("'&m_soakdose_'+n+'='+encodeURIComponent(eb('wds_dose').value));")
+        jsp.push("window._wdSettingsClose();};")
+        jsp.push("}")
+        jsp.push("}catch(e){}</script>")
+        var js = ""
+        for f: jsp js = js .. f end
         webserver.content_send(js)
         # Soil Dry/Wet, Dry threshold and Soak start dose forms moved into the
         # per-channel detail popup (see web_soil_detail + _wdSettingsOpen).
-    end
-
-
-    def web_add_config_button()
-    #- the onclick function "la" takes the function name and the respective value you want to send as an argument -#
-    # this not work. It wrong way. https://github.com/arendst/Tasmota/discussions/18753
-        webserver.content_send("<p></p><button onclick='la(\"&m_toggle_conf=1\");'>Toggle Conf</button>")
     end
 
 
@@ -1700,38 +1714,33 @@ class Watering
                 end
             end
             var msg = string.format(
-                      "<tr class='grp'><td colspan='2'>Сеанс</td></tr>"..
-                      "<tr class='sub'><th>Сеанс полива</th><td>%s</td></tr>"..
-                      "<tr class='sub'><th>Вода</th><td>%s</td></tr>",
+                      wgrp("Сеанс") .. wrow("Сеанс полива", "%s") .. wrow("Вода", "%s"),
                       sess, pump)
             tasmota.web_send_decimal(msg)
             msg = string.format(
-                      "<tr class='grp'><td colspan='2'>Размачивание</td></tr>"..
-                      "<tr class='sub'><th>Dry soak</th><td>%s</td></tr>"..
-                      "<tr class='sub'><th>Dry threshold</th><td>%i</td></tr>",
+                      wgrp("Размачивание") .. wrow("Dry soak", "%s") .. wrow("Dry threshold", "%i"),
                       dry_status, plant.DryThreshold)
             tasmota.web_send_decimal(msg)
-            msg = "<tr class='grp'><td colspan='2'>Текущий сеанс</td></tr>"
+            msg = wgrp("Текущий сеанс")
             if plant.SoilMaxHymidity != nil
                 msg += string.format(
-                        "<tr class='sub'><th>SoilHymidity" .. str(num) .. " max</th><td>%i</td></tr>",
+                        wrow("SoilHymidity" .. str(num) .. " max", "%i"),
                         plant.SoilMaxHymidity)
                 if plant.SoilMaxHymidityTime != nil
                     msg += string.format(
-                            "<tr class='sub'><th>SoilHymidity" .. str(num) .. " max time</th><td>%s</td></tr>",
+                            wrow("SoilHymidity" .. str(num) .. " max time", "%s"),
                             self._TimeStr(plant.SoilMaxHymidityTime))
                 end
             end
             msg += string.format(
-                      "<tr class='sub'><th>LastFloodVol</th><td>%i</td></tr>"..
-                      "<tr class='sub'><th>SoilHPreFlood</th><td>%s</td></tr>",
+                      wrow("LastFloodVol", "%i") .. wrow("SoilHPreFlood", "%s"),
                       plant.LastFloodVol, str(plant.SoilHPreFlood))
             tasmota.web_send_decimal(msg)
-            msg = "<tr class='grp'><td colspan='2'>Предыдущий сеанс</td></tr>"
+            msg = wgrp("Предыдущий сеанс")
             import introspect
             for k: ['PrevFloodedVol', 'PrevSoilHPreFlood', 'PrevSoilMaxHymidity']
                 msg += string.format(
-                          "<tr class='sub'><th>%s</th><td>%s</td></tr>",
+                          wrow("%s", "%s"),
                           k, str(introspect.get(plant, k)))
             end
             tasmota.web_send_decimal(msg)
@@ -1765,17 +1774,6 @@ class Watering
             end
         except .. as e
             print("web_sensor: reset counter failed " .. e)
-        end
-
-        try
-            if webserver.has_arg("m_toggle_conf") # takes a string as argument name and returns a boolean
-                # we can even call another function and use the value as a parameter
-                # takes a string or integer(index of arguments) to get the value of the argument
-                print("Conf button pressed")
-                #self.Conf_Toggle = int(webserver.arg("m_toggle_conf"))
-            end
-        except .. as e
-            print("web_sensor: conf toggle failed " .. e)
         end
 
         # Per-section expand state is per-request, carried in the browser URL
@@ -1862,9 +1860,7 @@ class Watering
         if self.plants[0].LastFloodTime != nil
             try
                 msg = string.format(
-                          "<tr class='grp'><td colspan='2'>Последний полив</td></tr>"..
-                          "<tr class='sub'><th>Last flood time</th><td>%s</td></tr>"..
-                          "<tr class='sub'><th>Last flood</th><td>%01.1f ml</td></tr>",
+                          wgrp("Последний полив") .. wrow("Last flood time", "%s") .. wrow("Last flood", "%01.1f ml"),
                           self._TimeStr(self.plants[0].LastFloodTime),
                           self.FlowSensors[0].Raw2Flow(self.plants[0].LastFloodVol))
                 tasmota.web_send_decimal(msg)
@@ -1885,7 +1881,7 @@ class Watering
         if exp_flow
             try
                 msg = string.format(
-                          "<tr class='sub'><th>FlowSensor Calibration mode</th><td>%s</td></tr>",
+                          wrow("FlowSensor Calibration mode", "%s"),
                           self.FlowSensorCalibration)
                 tasmota.web_send_decimal(msg)
             except .. as e
@@ -1893,8 +1889,9 @@ class Watering
             end
             try
                 msg = string.format(
-                          "<tr class='grp'><td colspan='2'>Сброс</td></tr>"..
-                          "<tr class='sub'><th>Water counter</th><td><a class='wcbtn' href='#' onclick='if(confirm(\"Сбросить счётчик воды?\")){la(\"&m_reset_water_counter_1=1\");}return false;'>Reset</a></td></tr>")
+                          wgrp("Сброс") ..
+                          wrow("Water counter",
+                               "<a class='wcbtn' href='#' onclick='if(confirm(\"Сбросить счётчик воды?\")){la(\"&m_reset_water_counter_1=1\");}return false;'>Reset</a>"))
                 tasmota.web_send_decimal(msg)
             except .. as e
                 print("web_sensor: reset counter row failed " .. e)
