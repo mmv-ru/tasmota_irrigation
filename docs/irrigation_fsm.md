@@ -260,5 +260,5 @@ timer_soil_transition_after_flooded →
 ## Сухая замочка (команда/веб) — канал 1
 
 - Команда `DrySoak` (регистрируется в `init_sensors()`, снимается в `deinit()`): пусто/`status` → строка `preset=…, DryThreshold=…, dose=…, since=…`; `start` → принудительная dry-замочка на канале 1 (пресет `dry`, доза `SoakStartDose`, через `request_manual`), иначе `resp_cmnd_error()`.
-- Веб: `Dry threshold(Raw)` и `Soak start dose` инпуты + кнопка `Set dry soak` (арги `m_drythr`/`m_soakdose`, пишутся в `P1DryThreshold`/`P1SoakStartDose` через `Store.set`, debounced); ряды `web_sensor()`: `Flooding in process`, `Dry soak` (`none` / `soak, dose N`), `Dry threshold`.
+- Веб: настройки канала — кнопка `⚙ Полив` в detail (`web_soil_detail`), JS-попап, суффиксные арги `m_drythr_N`/`m_soakdose_N` (+ `m_soildry_N`/`m_soilwet_N` для порогов; bare-арги = канал 1, legacy), пишутся в `P{Num}DryThreshold`/`P{Num}SoakStartDose` через `Store.set`, debounced; ряды `web_sensor()`: `Flooding in process`, `Dry soak` (`none` / `soak, dose N`), `Dry threshold`.
 - Сухая замочка НЕ пишет Prev*/estimate-статы (`WriteStats=false`): `save_batch_entries` в `start_session` и трекинг `SoilMaxHymidity` в `every_second` пропускаются (`_stats_enabled()`).

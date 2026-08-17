@@ -82,14 +82,27 @@ wp1.web_sensor()
 assert_eq(ss.RawDry, 850, "web m_soildry sets RawDry")
 assert_eq(persist.find('P1TargetDry'), 850, "web m_soildry persists RawDry")
 
-section("web_form_emits_inputs")
+section("web_arg_per_channel_suffix")
 
+# channel 2 edits its own thresholds via the suffixed arg; channel 1 untouched
+webserver.has_arg = def (name) return name == 'm_soildry_2' end
+webserver.arg = def (name, dflt) return '860' end
+wp1.web_sensor()
+assert_eq(wp1.SoilSensors[1].RawDry, 860, "web m_soildry_2 sets channel 2 RawDry")
+assert_eq(wp1.SoilSensors[0].RawDry, 850, "channel 1 RawDry untouched by suffixed arg")
+
+section("web_form_emits_no_bare_inputs")
+
+# the Soil Dry/Wet and Dry threshold/Soak dose forms moved into the per-channel
+# detail popup; the main page must no longer emit the bare input ids
 SIM['webhtml'] = list()
 wp1.web_add_main_button()
 var joined = ""
 for h: SIM['webhtml'] joined = joined .. h end
-assert_true(string.find(joined, "m_soildry") >= 0, "form has m_soildry input")
-assert_true(string.find(joined, "m_soilwet") >= 0, "form has m_soilwet input")
+assert_true(string.find(joined, "id='soil_dry'") < 0, "no bare Soil Dry form on main page")
+assert_true(string.find(joined, "id='soil_wet'") < 0, "no bare Soil Wet form on main page")
+assert_true(string.find(joined, "id='dry_thr'") < 0, "no bare Dry threshold form on main page")
+assert_true(string.find(joined, "id='soak_dose'") < 0, "no bare Soak start dose form on main page")
 
 section("deinit_removes_cmds")
 

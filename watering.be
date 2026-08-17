@@ -293,14 +293,22 @@ class SoilSensor: AbstractSensor
                 self.RawWet, self.Raw2Hu(self.RawWet)
                 )
             msg = msg .. "<tr class='grp'><td colspan='2'>Датчик</td></tr>"
+            # Values may be nil until the first sensor Update (unconnected
+            # channels). Guard each one: show "nil" instead of crashing the
+            # whole section (which would drop the header and make the accordion
+            # un-collapsible).
+            var rawv = self.Raw != nil ? str(self.Raw) : "nil"
+            var rawema = self.RawEma != nil ? string.format("%01.4f", self.RawEma) : "nil"
+            var hu = self.RawEma != nil ? string.format("%01.1f%%", self.Raw2Hu(self.RawEma)) : "nil"
+            var mv = self.Raw != nil ? string.format("%01.1f mV", self.Raw2mV(self.Raw)) : "nil"
             msg = msg .. string.format(
-                "<tr class='sub'><th>Raw</th><td>%i</td></tr>" ..
-                "<tr class='sub'><th>Raw EMA(%i)</th><td>%01.4f</td></tr>",
-                self.Raw, self.EMAN, self.RawEma)
+                "<tr class='sub'><th>Raw</th><td>%s</td></tr>" ..
+                "<tr class='sub'><th>Raw EMA(%i)</th><td>%s</td></tr>",
+                rawv, self.EMAN, rawema)
             msg = msg .. string.format(
-                "<tr class='sub'><th>Hymidity u</th><td>%01.1f%%</td></tr>"..
-                "<tr class='sub'><th>mV</th><td>%01.1f mV</td></tr>",
-                self.Hu, self.mV)
+                "<tr class='sub'><th>Hymidity u</th><td>%s</td></tr>"..
+                "<tr class='sub'><th>mV</th><td>%s</td></tr>",
+                hu, mv)
         else
             # Compact view: no rows — Raw EMA is already in the header pill
             # ("raw"), and Hymidity is meaningless until calibration (and after
@@ -1554,6 +1562,16 @@ class Watering
             "#wdtt .ttmark{display:inline-block;width:16px;text-align:center;}"..
             "#wdtt .ttic{display:inline-block;width:20px;text-align:center;vertical-align:middle;}"..
             "#wdtt .ttdrop{display:inline-block;font-size:.9rem;filter:grayscale(1);opacity:.8;vertical-align:-2px;}"..
+            "#wdsv{position:fixed;z-index:9998;display:none;inset:0;background:rgba(0,0,0,.55);align-items:center;justify-content:center;}"..
+            "#wdsv.open{display:flex;}"..
+            "#wdsv .box{background:#1b2127;border:1px solid #3e3e3e;border-radius:12px;min-width:260px;box-shadow:0 6px 24px rgba(0,0,0,.5);}"..
+            "#wdsv .hd{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #3e3e3e;color:#eaeaea;font-weight:600;}"..
+            "#wdsv .hd a{color:#8ca0b3;text-decoration:none;font-size:1.1rem;cursor:pointer;}"..
+            "#wdsv .bd{padding:10px 14px;display:flex;flex-direction:column;gap:8px;}"..
+            "#wdsv .bd label{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#b8c4cf;font-size:.85rem;}"..
+            "#wdsv .bd input{width:7em;padding:3px 6px;background:#12161b;color:#fff;border:1px solid #3e3e3e;border-radius:6px;text-align:right;}"..
+            "#wdsv .ft{display:flex;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid #3e3e3e;}"..
+            "#wdsv a.wcbtn{margin-left:0;}"..
             "</style>")
         var js =
             # Per-tab per-section expand state lives in the browser URL as one
@@ -1598,20 +1616,37 @@ class Watering
                 "var x=r.left-tw-8;if(x<4)x=r.right+8;var y=r.top+r.height/2-t.offsetHeight/2;if(y<4)y=r.top+8;" ..
                 "t.style.left=x+'px';t.style.top=y+'px';};" ..
               "document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);" ..
+              "window._wdSett=null;" ..
+              "window._wdSettingsOpen=function(a){" ..
+                "if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';d.innerHTML=" ..
+                  "'<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div>'" ..
+                  "+'<div class=\"bd\">'" ..
+                  "+'<label>Soil Dry(Raw) <input id=\"wds_dry\" type=\"text\"></label>'" ..
+                  "+'<label>Soil Wet(Raw) <input id=\"wds_wet\" type=\"text\"></label>'" ..
+                  "+'<label>Dry threshold(Raw) <input id=\"wds_thr\" type=\"text\"></label>'" ..
+                  "+'<label>Soak start dose <input id=\"wds_dose\" type=\"text\"></label>'" ..
+                  "+'</div><div class=\"ft\">'" ..
+                  "+'<a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsSave();return false;\">Сохранить</a>'" ..
+                  "+'<a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsClose();return false;\">Отмена</a>'" ..
+                  "+'</div></div>';document.body.appendChild(d);window._wdSett=d;}" ..
+                "window._wdSett._num=a.getAttribute('data-num');" ..
+                "eb('wds_dry').value=a.getAttribute('data-dry');" ..
+                "eb('wds_wet').value=a.getAttribute('data-wet');" ..
+                "eb('wds_thr').value=a.getAttribute('data-thr');" ..
+                "eb('wds_dose').value=a.getAttribute('data-dose');" ..
+                "window._wdSett.className+=' open';};" ..
+              "window._wdSettingsClose=function(){if(window._wdSett)window._wdSett.className=window._wdSett.className.replace(' open','');};" ..
+              "window._wdSettingsSave=function(){var n=window._wdSett._num;" ..
+                "la('&m_soildry_'+n+'='+encodeURIComponent(eb('wds_dry').value)+" ..
+                "'&m_soilwet_'+n+'='+encodeURIComponent(eb('wds_wet').value)+" ..
+                "'&m_drythr_'+n+'='+encodeURIComponent(eb('wds_thr').value)+" ..
+                "'&m_soakdose_'+n+'='+encodeURIComponent(eb('wds_dose').value));" ..
+                "window._wdSettingsClose();};" ..
             "}" ..
             "}catch(e){}</script>"
         webserver.content_send(js)
-        webserver.content_send(
-            "<p></p><div style='display:flex;flex-wrap:wrap;gap:4px;align-items:center'>"
-            .. "Soil Dry(Raw) <input type='text' id='soil_dry' name='m_soildry' style='width:5em;padding:2px' value='" .. str(self.SoilSensors[0].RawDry) .. "'> "
-            .. "Soil Wet(Raw) <input type='text' id='soil_wet' name='m_soilwet' style='width:5em;padding:2px' value='" .. str(self.SoilSensors[0].RawWet) .. "'> "
-            .. "<button style='width:auto;padding:2px 8px' onclick='la(\"&m_soildry=\"+eb(\"soil_dry\").value+\"&m_soilwet=\"+eb(\"soil_wet\").value);'>Set soil thresholds</button></div>")
-        webserver.content_send(
-            "<p></p><div style='display:flex;flex-wrap:wrap;gap:4px;align-items:center'>"
-            .. "Dry threshold(Raw) <input type='text' id='dry_thr' name='m_drythr' style='width:5em;padding:2px' value='" .. str(self.plants[0].DryThreshold) .. "'> "
-            .. "Soak start dose <input type='text' id='soak_dose' name='m_soakdose' style='width:5em;padding:2px' value='" .. str(self.Store.get('P1SoakStartDose')) .. "'> "
-            .. "<button style='width:auto;padding:2px 8px' onclick='la(\"&m_drythr=\"+eb(\"dry_thr\").value+\"&m_soakdose=\"+eb(\"soak_dose\").value);'>Set dry soak</button></div>")
-#        webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_2=1\");'>Reset water counter 1</button>")
+        # Soil Dry/Wet, Dry threshold and Soak start dose forms moved into the
+        # per-channel detail popup (see web_soil_detail + _wdSettingsOpen).
     end
 
 
@@ -1664,6 +1699,18 @@ class Watering
                       "<tr class='sub'><th>Dry soak</th><td>%s</td></tr>"..
                       "<tr class='sub'><th>Dry threshold</th><td>%i</td></tr>",
                       dry_status, plant.DryThreshold)
+            tasmota.web_send_decimal(msg)
+            # Per-channel settings button: opens a JS popup with this channel's
+            # Soil Dry/Wet, Dry threshold and Soak start dose (current values in
+            # data-* attrs). The popup lives in document.body (outside #l1) so it
+            # survives the 2.3s polling redraw; see _wdSettingsOpen in
+            # web_add_main_button().
+            msg = string.format(
+                      "<tr class='sub'><th>Настройки</th><td><a class='wcbtn' "..
+                      "data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' "..
+                      "onclick='_wdSettingsOpen(this);return false;'>⚙ Полив</a></td></tr>",
+                      num, plant.SoilSensor.RawDry, plant.SoilSensor.RawWet,
+                      plant.DryThreshold, str(self.Store.get(plant.Prefix .. 'SoakStartDose')))
             tasmota.web_send_decimal(msg)
             msg = "<tr class='grp'><td colspan='2'>Текущий сеанс</td></tr>"
             if plant.SoilMaxHymidity != nil
@@ -1750,42 +1797,49 @@ class Watering
         end
 
         try
-            if webserver.has_arg("m_soildry")
-                if self.SoilSensors[0].SetDry(int(webserver.arg("m_soildry")))
-                    print("web_sensor: Soil Dry threshold set to " .. self.SoilSensors[0].RawDry)
-                else
-                    print("web_sensor: Soil Dry threshold rejected")
+            # Per-channel settings (popup in each channel detail): args carry a
+            # channel suffix m_soildry_N / m_soilwet_N / m_drythr_N / m_soakdose_N.
+            # The bare args (m_soildry etc.) still mean channel 1 (legacy forms).
+            for i: 1..self.NumChannels
+                var s = str(i)
+                var ss = self.SoilSensors[i - 1]
+                var sfx = "_" .. s
+                if i == 1
+                    sfx = ""
                 end
-            end
-            if webserver.has_arg("m_soilwet")
-                if self.SoilSensors[0].SetWet(int(webserver.arg("m_soilwet")))
-                    print("web_sensor: Soil Wet threshold set to " .. self.SoilSensors[0].RawWet)
-                else
-                    print("web_sensor: Soil Wet threshold rejected")
+                if webserver.has_arg("m_soildry" .. sfx)
+                    if ss.SetDry(int(webserver.arg("m_soildry" .. sfx)))
+                        print("web_sensor: channel " .. s .. " Soil Dry threshold set to " .. ss.RawDry)
+                    else
+                        print("web_sensor: channel " .. s .. " Soil Dry threshold rejected")
+                    end
+                end
+                if webserver.has_arg("m_soilwet" .. sfx)
+                    if ss.SetWet(int(webserver.arg("m_soilwet" .. sfx)))
+                        print("web_sensor: channel " .. s .. " Soil Wet threshold set to " .. ss.RawWet)
+                    else
+                        print("web_sensor: channel " .. s .. " Soil Wet threshold rejected")
+                    end
+                end
+                var pl = self.plants[i - 1]
+                if webserver.has_arg("m_drythr" .. sfx)
+                    var dt = int(webserver.arg("m_drythr" .. sfx))
+                    if dt != nil && dt > 0
+                        pl.DryThreshold = dt
+                        self.Store.set('P' .. s .. 'DryThreshold', dt)
+                        print("web_sensor: channel " .. s .. " Dry threshold set to " .. dt)
+                    end
+                end
+                if webserver.has_arg("m_soakdose" .. sfx)
+                    var sd = int(webserver.arg("m_soakdose" .. sfx))
+                    if sd != nil && sd > 0
+                        self.Store.set('P' .. s .. 'SoakStartDose', sd)
+                        print("web_sensor: channel " .. s .. " Soak start dose set to " .. sd)
+                    end
                 end
             end
         except .. as e
-            print("web_sensor: soil threshold failed " .. e)
-        end
-
-        try
-            if webserver.has_arg("m_drythr")
-                var dt = int(webserver.arg("m_drythr"))
-                if dt != nil && dt > 0
-                    self.plants[0].DryThreshold = dt
-                    self.Store.set('P1DryThreshold', dt)
-                    print("web_sensor: Dry threshold set to " .. dt)
-                end
-            end
-            if webserver.has_arg("m_soakdose")
-                var sd = int(webserver.arg("m_soakdose"))
-                if sd != nil && sd > 0
-                    self.Store.set('P1SoakStartDose', sd)
-                    print("web_sensor: Soak start dose set to " .. sd)
-                end
-            end
-        except .. as e
-            print("web_sensor: dry soak args failed " .. e)
+            print("web_sensor: per-channel settings args failed " .. e)
         end
 
         # Per-channel accordions: one section per channel, header + per-channel

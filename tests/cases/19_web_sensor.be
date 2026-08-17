@@ -84,9 +84,27 @@ var j5 = ""
 for m: SIM['websend'] j5 = j5 + m end
 assert_true(string.find(j5, "pulse/s") < 0, "no flow detail row when me= (collapsed)")
 assert_true(string.find(j5, "Water counter") < 0, "no reset counter row when me= (collapsed)")
+assert_true(string.find(j5, "Настройки</th>") < 0, "no settings row in compact")
 assert_true(string.find(j5, "Сеанс полива</th>") < 0, "no session row in compact")
 assert_true(string.find(j5, "Вода</th>") < 0, "no pump row in compact")
 assert_eq(string.split(j5, "class='st wait'").size(), 5, "waiting status icon shown in every channel header (4 channels)")
+
+section("web_sensor_unconnected_channel")
+
+# an unconnected channel (RawEma/Raw nil, no Update ever) must still render its
+# header + expanded detail with "nil" placeholders instead of crashing the whole
+# section (which used to drop the header and make the accordion un-collapsible)
+wp1.SoilSensors[3].Raw = nil
+wp1.SoilSensors[3].RawEma = nil
+webserver.has_arg = def (name) return name == 'me' end
+webserver.arg = def (name, dflt) return name == 'me' ? '4' : dflt end
+SIM['websend'] = []
+wp1.web_sensor()
+var j9 = ""
+for m: SIM['websend'] j9 = j9 + m end
+assert_true(string.find(j9, "Канал 4<span") >= 0, "unconnected channel 4 header still rendered")
+assert_true(string.find(j9, "Размачивание</td>") >= 0, "unconnected channel 4 detail rendered")
+assert_true(string.find(j9, "<th>Raw</th><td>nil") >= 0, "nil Raw shown instead of crash")
 
 section("web_sensor_per_channel_detail")
 
@@ -104,6 +122,11 @@ assert_true(string.find(j6, "SoilHymidity2 max") >= 0, "channel 2 max shown when
 assert_true(string.find(j6, "SoilHymidity2 max time") >= 0, "channel 2 max time shown when me=2")
 assert_true(string.find(j6, "LastFloodVol") >= 0, "channel 2 session row shown when me=2")
 assert_true(string.find(j6, "SoilHymidity1 max") < 0, "channel 1 max hidden when me=2")
+# per-channel settings button: present in the expanded channel detail with the
+# channel number and its own thresholds in data-* attrs
+assert_true(string.find(j6, "Настройки</th>") >= 0, "settings row under expanded channel")
+assert_true(string.find(j6, "data-num='2'") >= 0, "settings button carries the channel number")
+assert_true(string.find(j6, "_wdSettingsOpen(this)") >= 0, "settings button opens the JS popup")
 
 # session is per-channel: channel 2 active -> only its row reads active, and
 # the pump row reads idle (relay off). Icon switches from waiting to session.

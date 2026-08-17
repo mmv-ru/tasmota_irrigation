@@ -12,6 +12,9 @@ for m: SIM['webhtml'] joined = joined .. m end
 assert_true(string.find(joined, "Flow Sensor Calibration") >= 0, "calibration button")
 assert_true(string.find(joined, "Reset water counter") < 0, "reset counter button moved off the main page into Common detail")
 assert_true(string.find(joined, "Toggle Conf") >= 0, "toggle conf button")
+# the per-channel settings popup JS lives in the main-button inject
+assert_true(string.find(joined, "_wdSettingsOpen") >= 0, "settings popup JS injected")
+assert_true(string.find(joined, "m_soildry_") >= 0, "settings popup posts suffixed per-channel args")
 
 section("deinit_cleans_rules_and_drivers")
 
