@@ -126,7 +126,6 @@ assert_true(string.find(j6, "SoilHymidity1 max") < 0, "channel 1 max hidden when
 # channel number and its own thresholds in data-* attrs
 assert_true(string.find(j6, "Настройки порогов</th>") >= 0, "settings row under expanded channel")
 assert_true(string.find(j6, "data-num='2'") >= 0, "settings button carries the channel number")
-assert_true(string.find(j6, "data-ema='600'") >= 0, "settings button carries the EMA period")
 assert_true(string.find(j6, "_wdSettingsOpen(this)") >= 0, "settings button opens the JS popup")
 
 # session is per-channel: channel 2 active -> only its row reads active, and

@@ -91,28 +91,6 @@ wp1.web_sensor()
 assert_eq(wp1.SoilSensors[1].RawDry, 860, "web m_soildry_2 sets channel 2 RawDry")
 assert_eq(wp1.SoilSensors[0].RawDry, 850, "channel 1 RawDry untouched by suffixed arg")
 
-section("web_arg_ema_sets_ram_only")
-
-# EMA period editable via the suffixed web arg; runtime-only (no Store key).
-webserver.has_arg = def (name) return name == 'm_ema_2' end
-webserver.arg = def (name, dflt) return '300' end
-wp1.web_sensor()
-assert_eq(wp1.SoilSensors[1].EMAN, 300, "web m_ema_2 sets channel 2 EMA period")
-assert_eq(wp1.SoilSensors[0].EMAN, 600, "channel 1 EMA period untouched by suffixed arg")
-assert_eq(wp1.Store.get('P2Ema'), nil, "EMA period not persisted to Store (runtime-only)")
-
-section("web_arg_ema_rejects_zero")
-
-# 0 / negative are rejected, EMAN stays untouched
-var ema_before = wp1.SoilSensors[2].EMAN
-webserver.has_arg = def (name) return name == 'm_ema_3' end
-webserver.arg = def (name, dflt) return '0' end
-wp1.web_sensor()
-assert_eq(wp1.SoilSensors[2].EMAN, ema_before, "web m_ema_3=0 rejected")
-webserver.arg = def (name, dflt) return '-5' end
-wp1.web_sensor()
-assert_eq(wp1.SoilSensors[2].EMAN, ema_before, "web m_ema_3 negative rejected")
-
 section("web_form_emits_no_bare_inputs")
 
 # the Soil Dry/Wet and Dry threshold/Soak dose forms moved into the per-channel

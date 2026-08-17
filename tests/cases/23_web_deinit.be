@@ -14,8 +14,6 @@ assert_true(string.find(joined, "Toggle Conf") < 0, "dead toggle-conf button rem
 # the per-channel settings popup JS lives in the main-button inject
 assert_true(string.find(joined, "_wdSettingsOpen") >= 0, "settings popup JS injected")
 assert_true(string.find(joined, "m_soildry_") >= 0, "settings popup posts suffixed per-channel args")
-assert_true(string.find(joined, "m_ema_") >= 0, "settings popup posts suffixed EMA-period args")
-assert_true(string.find(joined, "wds_ema") >= 0, "settings popup has the EMA-period field")
 
 section("deinit_cleans_rules_and_drivers")
 

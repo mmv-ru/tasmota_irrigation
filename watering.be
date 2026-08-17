@@ -1625,7 +1625,7 @@ class Watering
         jsp.push("t.style.left=x+'px';t.style.top=y+'px';};")
         jsp.push("document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);")
         jsp.push("window._wdSett=null;")
-        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose','m_soakdose_','dose'],['wds_ema','EMA period','m_ema_','ema']];")
+        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose','m_soakdose_','dose']];")
         jsp.push("window._wdSettingsOpen=function(a){")
         jsp.push("if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';d.innerHTML='<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div><div class=\"bd\">';")
         jsp.push("for(var i=0;i<_wdF.length;i++){d.innerHTML+='<label>'+_wdF[i][1]+' <input id=\"'+_wdF[i][0]+'\" type=\"text\"></label>';}")
@@ -1679,10 +1679,10 @@ class Watering
             # see _wdSettingsOpen in web_add_main_button().
             msg = msg .. string.format(
                 wrow("Настройки порогов",
-                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' data-ema='%i' " ..
+                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' " ..
                      wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
                 num, ss.RawDry, ss.RawWet,
-                plant.DryThreshold, str(ss.Store.get(ss.Prefix .. 'SoakStartDose')), ss.EMAN)
+                plant.DryThreshold, str(ss.Store.get(ss.Prefix .. 'SoakStartDose')))
             msg = msg .. wgrp("Датчик")
             # Values may be nil until the first sensor Update (unconnected
             # channels). Guard each one: show "nil" instead of crashing the
@@ -1833,13 +1833,6 @@ class Watering
                     if sd != nil && sd > 0
                         self.Store.set('P' .. s .. 'SoakStartDose', sd)
                         print("web_sensor: channel " .. s .. " Soak start dose set to " .. sd)
-                    end
-                end
-                if webserver.has_arg("m_ema" .. sfx)
-                    var ema = int(webserver.arg("m_ema" .. sfx))
-                    if ema != nil && ema > 0
-                        ss.EMAN = ema
-                        print("web_sensor: channel " .. s .. " EMA period set to " .. ema)
                     end
                 end
             end
