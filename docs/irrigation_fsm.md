@@ -119,8 +119,7 @@ flowchart TD
 
     %% ===================== timer_soil_transition =====================
     subgraph T_SOIL["Plant.timer_soil_transition_after_flooded() — проверка результата"]
-        ARB_EVAL --> TSL_READ["SoilHPostFlood = Hymidity (послеполивная влажность)"]
-        TSL_READ --> TSL_PRESET{"Preset != nil?"}
+        ARB_EVAL --> TSL_PRESET{"Preset != nil?"}
         TSL_PRESET -- да, normal --> TSL_CLASSIC["Preset.evaluate → _evaluate_escalate()"]
         TSL_PRESET -- нет --> TSL_CLASSIC
         TSL_CLASSIC --> TSL_DRY{"Raw > (RawDry+RawWet)/2 — земля всё ещё сухая?"}

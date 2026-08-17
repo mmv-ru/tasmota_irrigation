@@ -12,3 +12,4 @@ tests/out/
 .playwright-mcp/
 /main.png
 *.png
+mock.html

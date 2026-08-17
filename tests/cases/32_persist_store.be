@@ -145,13 +145,14 @@ assert_eq(wp1.NumChannels, 4, "NumChannels unchanged until restart")
 wp1.Store.set('Channels', '4')
 wp1.Store.flush(true)
 
-section("web_sensor_store_table")
+section("web_sensor_session_table")
 
 # Detail (soil1 section expanded, request carries me=1) only:
-# Store.* rows live under the channel-1 accordion, in explicit
+# live session rows live under the channel-1 accordion, in explicit
 # current-then-previous order. Duplicate keys (TargetDry/TargetWet) and
-# nil-less keys must NOT appear; SoilMaxHymidity/SoilMaxHymidityTime ARE listed
-# (confirmed values that survive a reboot).
+# nil-less keys must NOT appear; SoilMaxHymidity/SoilMaxHymidityTime are shown
+# as the live "max" rows (confirmed values that survive a reboot), not as
+# Store keys.
 webserver.has_arg = def (name) return name == 'me' end
 webserver.arg = def (name, dflt) return name == 'me' ? '1' : dflt end
 SIM['websend'] = list()
@@ -160,25 +161,25 @@ P1.LastFloodTime = nil
 wp1.web_sensor()
 var joined = ""
 for m: SIM['websend'] joined = joined .. m end
-assert_true(string.find(joined, "Store.P1PrevSoilHPreFlood") >= 0, "web table has Prev keys")
-assert_true(string.find(joined, "Store.P1TargetDry") < 0, "Store.P1TargetDry omitted")
-assert_true(string.find(joined, "Store.P1TargetWet") < 0, "Store.P1TargetWet omitted")
-assert_true(string.find(joined, "Store.P1SoilMaxHymidity") >= 0, "Store.P1SoilMaxHymidity listed")
-assert_true(string.find(joined, "Store.P1SoilMaxHymidityTime") >= 0, "Store.P1SoilMaxHymidityTime listed")
+assert_true(string.find(joined, "PrevSoilHPreFlood") >= 0, "web table has Prev keys")
+assert_true(string.find(joined, "TargetDry") < 0, "TargetDry omitted")
+assert_true(string.find(joined, "TargetWet") < 0, "TargetWet omitted")
+assert_true(string.find(joined, "LastFloodVol") >= 0, "LastFloodVol listed (live)")
+assert_true(string.find(joined, "SoilHPreFlood") >= 0, "SoilHPreFlood listed (live)")
 # explicit order: current session first (LastFloodVol), then previous session
-assert_true(string.find(joined, "Store.P1LastFloodVol") < string.find(joined, "Store.P1PrevFloodedVol"), "current-session keys before Prev*")
-assert_true(string.find(joined, "Store.P1PrevFloodedVol") < string.find(joined, "Store.P1PrevSoilHPostFlood"), "Prev* keys grouped together")
+assert_true(string.find(joined, "LastFloodVol") < string.find(joined, "PrevFloodedVol"), "current-session keys before Prev*")
+assert_true(string.find(joined, "PrevFloodedVol") < string.find(joined, "PrevSoilHPreFlood"), "Prev* keys grouped together")
 
 section("store_table_hidden_in_compact")
 
-# compact (no me in the request) must not emit Store.* or max rows at all
+# compact (no me in the request) must not emit session or max rows at all
 webserver.has_arg = def (name) return false end
 webserver.arg = def (name, dflt) return dflt end
 SIM['websend'] = list()
 wp1.web_sensor()
 var cjoined = ""
 for m: SIM['websend'] cjoined = cjoined .. m end
-assert_true(string.find(cjoined, "Store.") < 0, "compact view has no Store.* rows")
+assert_true(string.find(cjoined, "LastFloodVol") < 0, "compact view has no session rows")
 assert_true(string.find(cjoined, "SoilHymidity1 max") < 0, "compact view has no max row")
 
 section("store_table_sections_independent")
@@ -195,8 +196,8 @@ for m: SIM['websend'] ja = ja .. m end
 assert_eq(string.split(ja, "Влажно</th>").size(), 2, "soil2 stays collapsed when only soil1 expanded")
 assert_true(string.find(ja, "Сухо</th>") >= 0, "soil1 detail rows present")
 
-# soil2-only: soil2 expands, soil1 collapses. Each channel's Store rows are
-# under its own P{Num} prefix: soil2 exposes Store.P2*, soil1's P1* stay out.
+# soil2-only: soil2 expands, soil1 collapses. Session rows appear exactly once
+# (under the expanded soil2), so soil1's rows stay out.
 webserver.has_arg = def (name) return name == 'me' end
 webserver.arg = def (name, dflt) return name == 'me' ? '2' : dflt end
 SIM['websend'] = list()
@@ -205,8 +206,7 @@ wp1.web_sensor()
 var jc = ""
 for m: SIM['websend'] jc = jc .. m end
 assert_eq(string.split(jc, "Влажно</th>").size(), 2, "soil1 collapses when only soil2 expanded")
-assert_true(string.find(jc, "Store.P2PrevSoilHPreFlood") >= 0, "soil2-only expansion shows soil2's own Store.P2 rows")
-assert_true(string.find(jc, "Store.P1PrevSoilHPreFlood") < 0, "soil2-only expansion keeps soil1 Store.P1 rows out")
+assert_eq(string.split(jc, "PrevSoilHPreFlood").size(), 2, "soil2-only expansion emits session rows once (soil1 kept out)")
 assert_true(string.find(jc, "SoilHymidity2 max") >= 0, "soil2 detail shows its own max")
 
 # both flags set: both soil sections expand (two "Влажно</th>" -> 3 parts)
@@ -217,8 +217,7 @@ wp1.web_sensor()
 var jb = ""
 for m: SIM['websend'] jb = jb .. m end
 assert_eq(string.split(jb, "Влажно</th>").size(), 3, "both soil sections expanded when both flags set")
-assert_true(string.find(jb, "Store.P1PrevSoilHPreFlood") >= 0, "Store rows present when soil1 expanded")
-assert_true(string.find(jb, "Store.P2PrevSoilHPreFlood") >= 0, "Store rows present when soil2 expanded")
+assert_eq(string.split(jb, "PrevSoilHPreFlood").size(), 3, "both channels emit their Prev rows (two sets)")
 
 section("deinit_flushes_store")
 

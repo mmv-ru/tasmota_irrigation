@@ -480,10 +480,10 @@ class PersistStore
             'SoakTrendWindow': '86400', 'SoakDoseGrow': '1.2',
             'SoakDailyCap': '1500', 'SoakMaxDose': '2000',
             'LastFloodVol': '0',
-            'SoilHPreFlood': nil, 'SoilHPostFlood': nil,
+            'SoilHPreFlood': nil,
             'SoilMaxHymidity': nil, 'SoilMaxHymidityTime': nil,
             'PrevSoilMaxHymidity': nil, 'PrevSoilHPreFlood': nil,
-            'PrevFloodedVol': nil, 'PrevSoilHPostFlood': nil,
+            'PrevFloodedVol': nil,
         }
         for p: keys.keys()
             self.register(prefix .. p, {'default': keys[p], 'policy': 'debounced'})
@@ -755,11 +755,9 @@ class Plant
     var LastFloodVol
     var PowerN
     var SoilHPreFlood
-    var SoilHPostFlood
     var PrevSoilMaxHymidity
     var PrevSoilHPreFlood
     var PrevFloodedVol
-    var PrevSoilHPostFlood
     var AutofloodInProcess
     var Counter1ResetPostpone
     var PauseSoilMaxStat
@@ -781,10 +779,10 @@ class Plant
         self.SoilSensor.RawDry = int(self.Store.get(self.Prefix .. 'TargetDry'))
         self.SoilSensor.RawWet = int(self.Store.get(self.Prefix .. 'TargetWet'))
         self.DryThreshold = int(self.Store.get(self.Prefix .. 'DryThreshold'))
-        for p: ['SoilHPreFlood', 'SoilHPostFlood',
+        for p: ['SoilHPreFlood',
                 'SoilMaxHymidity', 'SoilMaxHymidityTime',
                 'PrevSoilMaxHymidity',
-                'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
+                'PrevSoilHPreFlood', 'PrevFloodedVol']
             var v = self.Store.get(self.Prefix .. p)
             introspect.set(self, p, v)
         end
@@ -992,7 +990,6 @@ class Plant
     def timer_soil_transition_after_flooded()
         print("Timer: End soil transition after flooding")
         print("timer_soil_transition_after_flooded: self: ", self, "SS: ", self.SoilSensor)
-        self.SoilHPostFlood = self.SoilSensor.Hymidity
         # TODO: Add fast water calibration here
         # Fast water calibration: flood more if necessary
         print({ "Raw": self.SoilSensor.Raw,
@@ -1060,7 +1057,6 @@ class Plant
             # fallback to default. Skipped for the dry soak preset: it must not
             # pollute the estimate stats.
             self.PrevSoilHPreFlood = self.SoilHPreFlood
-            self.PrevSoilHPostFlood = self.SoilHPostFlood
             self.PrevFloodedVol = self.LastFloodVol
             self.PrevSoilMaxHymidity = self.SoilMaxHymidity
             self.Store.save_batch_entries(self._stats_batch())
@@ -1083,7 +1079,6 @@ class Plant
             [self.Prefix .. 'PrevSoilMaxHymidity', self.PrevSoilMaxHymidity],
             [self.Prefix .. 'PrevSoilHPreFlood', self.PrevSoilHPreFlood],
             [self.Prefix .. 'PrevFloodedVol', self.PrevFloodedVol],
-            [self.Prefix .. 'PrevSoilHPostFlood', self.PrevSoilHPostFlood],
             [self.Prefix .. 'SoilHPreFlood', self.SoilHPreFlood],
             [self.Prefix .. 'LastFloodVol', self.LastFloodVol],
         ]
@@ -1625,13 +1620,13 @@ class Watering
 
     def web_soil_detail(pi)
         # Per-channel accordion detail, shared by every soil section: session
-        # status, pump status, dry soak status, dry threshold, session max and
-        # the persist store snapshot under the channel's P{Num} prefix. Same
-        # logic for every channel.
+        # status, pump status, dry soak status, dry threshold and the live
+        # session stats (current max / LastFloodVol / SoilHPreFlood and the
+        # previous session's Prev* values) read from the plant attributes.
+        # Same logic for every channel.
         import string
         var plant = self.plants[pi]
         var num = plant.Num
-        var pre = 'P' + str(num)
         try
             var dry_status = "none"
             if plant.Preset != nil && plant.Preset.Type == 'dry'
@@ -1670,20 +1665,17 @@ class Watering
                             self._TimeStr(plant.SoilMaxHymidityTime))
                 end
             end
-            var store = self.Store.dump()
-            for k: ['LastFloodVol', 'SoilMaxHymidity', 'SoilMaxHymidityTime',
-                    'SoilHPostFlood', 'SoilHPreFlood']
-                msg += string.format(
-                          "<tr class='sub'><th>Store.%s</th><td>%s</td></tr>",
-                          pre .. k, store[pre .. k])
-            end
+            msg += string.format(
+                      "<tr class='sub'><th>LastFloodVol</th><td>%i</td></tr>"..
+                      "<tr class='sub'><th>SoilHPreFlood</th><td>%s</td></tr>",
+                      plant.LastFloodVol, str(plant.SoilHPreFlood))
             tasmota.web_send_decimal(msg)
             msg = "<tr class='grp'><td colspan='2'>Предыдущий сеанс</td></tr>"
-            for k: ['PrevFloodedVol', 'PrevSoilHPostFlood',
-                    'PrevSoilHPreFlood', 'PrevSoilMaxHymidity']
+            import introspect
+            for k: ['PrevFloodedVol', 'PrevSoilHPreFlood', 'PrevSoilMaxHymidity']
                 msg += string.format(
-                          "<tr class='sub'><th>Store.%s</th><td>%s</td></tr>",
-                          pre .. k, store[pre .. k])
+                          "<tr class='sub'><th>%s</th><td>%s</td></tr>",
+                          k, str(introspect.get(plant, k)))
             end
             tasmota.web_send_decimal(msg)
         except .. as e
@@ -1862,7 +1854,6 @@ class Watering
                 'LastSoilMaxHymidity':  p0.SoilMaxHymidity,
                 'PrevSoilHPreFlood': p0.PrevSoilHPreFlood,
                 'PrevFloodedVol': p0.PrevFloodedVol,
-                'PrevSoilHPostFlood': p0.PrevSoilHPostFlood,
                 'PrevSoilMaxHymidity': p0.PrevSoilMaxHymidity,
                 'PumpRunMillis': p0.PumpRunMillis,
                 'FlowSensorRate': self.FlowSensors[0].Rate,

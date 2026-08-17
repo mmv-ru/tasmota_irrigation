@@ -87,7 +87,7 @@ assert_eq(string.split(j5, "class='st wait'").size(), 5, "waiting status icon sh
 section("web_sensor_per_channel_detail")
 
 # every channel expands on its own flag: me=2 must show channel 2's detail
-# (its own max + dry rows + P2 store prefix), not channel 1's (P1).
+# (its own max + dry rows), not channel 1's.
 wp1.plants[1].SoilMaxHymidity = 771
 wp1.plants[1].SoilMaxHymidityTime = SIM['rtc_local']
 webserver.has_arg = def (name) return name == 'me' end
@@ -98,8 +98,7 @@ var j6 = ""
 for m: SIM['websend'] j6 = j6 + m end
 assert_true(string.find(j6, "SoilHymidity2 max") >= 0, "channel 2 max shown when me=2")
 assert_true(string.find(j6, "SoilHymidity2 max time") >= 0, "channel 2 max time shown when me=2")
-assert_true(string.find(j6, "Store.P2SoilMaxHymidity") >= 0, "channel 2 store prefix shown when me=2")
-assert_true(string.find(j6, "Store.P1SoilMaxHymidity") < 0, "channel 1 store prefix hidden when me=2")
+assert_true(string.find(j6, "LastFloodVol") >= 0, "channel 2 session row shown when me=2")
 assert_true(string.find(j6, "SoilHymidity1 max") < 0, "channel 1 max hidden when me=2")
 
 # session is per-channel: channel 2 active -> only its row reads active, and

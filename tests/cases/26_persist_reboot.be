@@ -32,7 +32,6 @@ assert_true(wp1.SoilSensors[0].IsDry(), "precondition: soil reads dry")
 
 # snapshot current session stats into persist, as auto_flood does on start
 wp1.plants[0].SoilHPreFlood = 812
-wp1.plants[0].SoilHPostFlood = 820
 wp1.plants[0].LastFloodVol = 420
 wp1.plants[0].SoilMaxHymidity = 805
 wp1.auto_flood()
@@ -47,7 +46,6 @@ assert_eq(wp1.plants[0].PlannedFlood, nil, "no plan while EMA below wet threshol
 wp1.deinit()
 wp1 = Watering()
 assert_eq(wp1.plants[0].PrevSoilHPreFlood, 812, "PrevSoilHPreFlood restored after reboot")
-assert_eq(wp1.plants[0].PrevSoilHPostFlood, 820, "PrevSoilHPostFlood restored after reboot")
 assert_eq(wp1.plants[0].PrevSoilMaxHymidity, 805, "PrevSoilMaxHymidity restored after reboot")
 assert_true(persist.has('P1PrevFloodedVol'), "PrevFloodedVol persisted by auto_flood")
 
