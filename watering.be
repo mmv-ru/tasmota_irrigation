@@ -33,6 +33,17 @@ def wgrp(label)
     return "<tr class='grp'><td colspan='2'>" .. label .. "</td></tr>"
 end
 
+# onclick attribute with a single quote rule: HTML attr value in single quotes,
+# JS inside may use double quotes freely (no Berry-level escape audit per site).
+def wonclick(js)
+    return "onclick='" .. js .. "'"
+end
+
+# Section-toggle onclick (header + chevron share the same _secToggle call).
+def wtoggle(sec)
+    return wonclick('_secToggle("' .. sec .. '");return false;')
+end
+
 class AbstractSensor
     var Name
     var SensorID
@@ -277,56 +288,19 @@ class SoilSensor: AbstractSensor
         # Section header as raw HTML: la() only rewrites the {s}/{m}/{e} tokens,
         # any other markup passes through to #l1 unchanged (border-radius etc.
         # styled by the injected <style> block, see web_add_main_button()).
-        msg = "<tr class='sec'><th class='hdr' onclick='_secToggle(\"" .. sec .. "\");return false;'>"
-        msg = msg .. "<span class='st " .. stc .. "' onclick='_wdShowTT(this,event)'>" .. st .. "</span>" .. nm
+        msg = "<tr class='sec'><th class='hdr' " .. wtoggle(sec) .. ">"
+        msg = msg .. "<span class='st " .. stc .. "' " .. wonclick('_wdShowTT(this,event)') .. ">" .. st .. "</span>" .. nm
         msg = msg .. "<span class='params'>"
         if self.RawEma != nil
             msg = msg .. "<span class='pill'><b>raw</b> " .. string.format("%01.2f", self.RawEma) .. "</span>"
         end
         msg = msg .. "<span class='pill'><b>сухо</b> " .. str(self.RawDry) .. "</span>" ..
                     "<span class='pill'><b>влажно</b> " .. str(self.RawWet) .. "</span></span>" ..
-                    "</th><td class='tgl'><a class='chev' href='#' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. arrow .. "</a></td></tr>"
-        if expanded
-            msg = msg .. wgrp("Уставки")
-            msg = msg .. string.format(
-                wrow("Сухо", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>") ..
-                wrow("Влажно", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>"),
-                self.RawDry, self.Raw2Hu(self.RawDry),
-                self.RawWet, self.Raw2Hu(self.RawWet)
-                )
-            # Per-channel settings button: opens the JS popup with this channel's
-            # Soil Dry/Wet, Dry threshold and Soak start dose (current values in
-            # data-* attrs). Lives in the Уставки group. The popup itself sits in
-            # document.body (outside #l1) so it survives the 2.3s polling redraw;
-            # see _wdSettingsOpen in web_add_main_button().
-            msg = msg .. string.format(
-                wrow("Настройки порогов",
-                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' "..
-                     "onclick='_wdSettingsOpen(this);return false;'>⚙</a>"),
-                plant.Num, self.RawDry, self.RawWet,
-                plant.DryThreshold, str(self.Store.get(self.Prefix .. 'SoakStartDose')))
-            msg = msg .. wgrp("Датчик")
-            # Values may be nil until the first sensor Update (unconnected
-            # channels). Guard each one: show "nil" instead of crashing the
-            # whole section (which would drop the header and make the accordion
-            # un-collapsible).
-            var rawv = self.Raw != nil ? str(self.Raw) : "nil"
-            var rawema = self.RawEma != nil ? string.format("%01.4f", self.RawEma) : "nil"
-            var hu = self.RawEma != nil ? string.format("%01.1f%%", self.Raw2Hu(self.RawEma)) : "nil"
-            var mv = self.Raw != nil ? string.format("%01.1f mV", self.Raw2mV(self.Raw)) : "nil"
-            msg = msg .. string.format(
-                wrow("Raw", "%s") .. wrow("Raw EMA(%i)", "%s"),
-                rawv, self.EMAN, rawema)
-            msg = msg .. string.format(
-                wrow("Hymidity u", "%s") .. wrow("mV", "%s"),
-                hu, mv)
-        else
-            # Compact view: no rows — Raw EMA is already in the header pill
-            # ("raw"), and Hymidity is meaningless until calibration (and after
-            # calibration it moves to the header too). Keep both in detail view.
-        end
-        # Flooding/session state moved to the expanded detail (web_soil_detail):
-        # the header now carries the status icon instead of a per-row text.
+                    "</th><td class='tgl'><a class='chev' href='#' " .. wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
+        # Expanded rows (Уставки/Датчик/settings button) live in
+        # Watering.web_soil_detail — one method owns the whole channel detail.
+        # Flooding/session state moved to the expanded detail too: the header
+        # carries the status icon instead of a per-row text.
 
         tasmota.web_send_decimal(msg)
 
@@ -441,8 +415,8 @@ class FlowSensor: AbstractSensor
         var msg
         var nm = "Common"
         var arrow = expanded ? "▲" : "▼"
-        msg = "<tr class='sec'><th class='hdr' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. nm ..
-              "</th><td class='tgl'><a class='chev' href='#' onclick='_secToggle(\"" .. sec .. "\");return false;'>" .. arrow .. "</a></td></tr>"
+        msg = "<tr class='sec'><th class='hdr' " .. wtoggle(sec) .. ">" .. nm ..
+              "</th><td class='tgl'><a class='chev' href='#' " .. wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
         msg = msg .. string.format(
                   wrow("Water used", "%01.1f ml"),
                   self.Raw2Flow(self.Raw))
@@ -1531,7 +1505,7 @@ class Watering
     end
 
     def web_add_main_button()
-        webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
+        webserver.content_send("<p></p><button " .. wonclick('la("&m_toggle_flowcalibration=1");') .. ">Flow Sensor Calibration</button>")
         # Section design (variant B): band headers with badges and a status
         # Styled via an injected <style> block (la() only rewrites {s}/{m}/{e},
         # everything else lands in #l1 verbatim). CSS rules are kept as a list
@@ -1647,31 +1621,18 @@ class Watering
         jsp.push("t.style.left=x+'px';t.style.top=y+'px';};")
         jsp.push("document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);")
         jsp.push("window._wdSett=null;")
+        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose','m_soakdose_','dose']];")
         jsp.push("window._wdSettingsOpen=function(a){")
-        jsp.push("if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';d.innerHTML=")
-        jsp.push("'<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div>'")
-        jsp.push("+'<div class=\"bd\">'")
-        jsp.push("+'<label>Soil Dry(Raw) <input id=\"wds_dry\" type=\"text\"></label>'")
-        jsp.push("+'<label>Soil Wet(Raw) <input id=\"wds_wet\" type=\"text\"></label>'")
-        jsp.push("+'<label>Dry threshold(Raw) <input id=\"wds_thr\" type=\"text\"></label>'")
-        jsp.push("+'<label>Soak start dose <input id=\"wds_dose\" type=\"text\"></label>'")
-        jsp.push("+'</div><div class=\"ft\">'")
-        jsp.push("+'<a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsSave();return false;\">Сохранить</a>'")
-        jsp.push("+'<a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsClose();return false;\">Отмена</a>'")
-        jsp.push("+'</div></div>';document.body.appendChild(d);window._wdSett=d;}")
+        jsp.push("if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';d.innerHTML='<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div><div class=\"bd\">';")
+        jsp.push("for(var i=0;i<_wdF.length;i++){d.innerHTML+='<label>'+_wdF[i][1]+' <input id=\"'+_wdF[i][0]+'\" type=\"text\"></label>';}")
+        jsp.push("d.innerHTML+='</div><div class=\"ft\"><a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsSave();return false;\">Сохранить</a><a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsClose();return false;\">Отмена</a></div></div>';document.body.appendChild(d);window._wdSett=d;}")
         jsp.push("window._wdSett._num=a.getAttribute('data-num');")
-        jsp.push("eb('wds_dry').value=a.getAttribute('data-dry');")
-        jsp.push("eb('wds_wet').value=a.getAttribute('data-wet');")
-        jsp.push("eb('wds_thr').value=a.getAttribute('data-thr');")
-        jsp.push("eb('wds_dose').value=a.getAttribute('data-dose');")
+        jsp.push("for(var i=0;i<_wdF.length;i++){eb(_wdF[i][0]).value=a.getAttribute('data-'+_wdF[i][3]);}")
         jsp.push("window._wdSett.className+=' open';};")
         jsp.push("window._wdSettingsClose=function(){if(window._wdSett)window._wdSett.className=window._wdSett.className.replace(' open','');};")
-        jsp.push("window._wdSettingsSave=function(){var n=window._wdSett._num;")
-        jsp.push("la('&m_soildry_'+n+'='+encodeURIComponent(eb('wds_dry').value)+")
-        jsp.push("'&m_soilwet_'+n+'='+encodeURIComponent(eb('wds_wet').value)+")
-        jsp.push("'&m_drythr_'+n+'='+encodeURIComponent(eb('wds_thr').value)+")
-        jsp.push("'&m_soakdose_'+n+'='+encodeURIComponent(eb('wds_dose').value));")
-        jsp.push("window._wdSettingsClose();};")
+        jsp.push("window._wdSettingsSave=function(){var n=window._wdSett._num,q='';")
+        jsp.push("for(var i=0;i<_wdF.length;i++){q+='&'+_wdF[i][2]+n+'='+encodeURIComponent(eb(_wdF[i][0]).value);}")
+        jsp.push("la(q);window._wdSettingsClose();};")
         jsp.push("}")
         jsp.push("}catch(e){}</script>")
         var js = ""
@@ -1690,15 +1651,50 @@ class Watering
 
 
     def web_soil_detail(pi)
-        # Per-channel accordion detail, shared by every soil section: session
-        # status, pump status, dry soak status, dry threshold and the live
-        # session stats (current max / LastFloodVol / SoilHPreFlood and the
-        # previous session's Prev* values) read from the plant attributes.
-        # Same logic for every channel.
+        # Per-channel accordion detail, shared by every soil section: sensor
+        # thresholds (Уставки) with the settings button, live sensor values
+        # (Датчик), session/pump status, dry soak and the previous/current
+        # session stats — everything under one expanded channel. One method
+        # owns the whole detail (SoilSensor.web_sensor only emits the header).
         import string
         var plant = self.plants[pi]
         var num = plant.Num
         try
+            var ss = plant.SoilSensor
+            var msg = wgrp("Уставки")
+            msg = msg .. string.format(
+                wrow("Сухо", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>") ..
+                wrow("Влажно", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>"),
+                ss.RawDry, ss.Raw2Hu(ss.RawDry),
+                ss.RawWet, ss.Raw2Hu(ss.RawWet)
+                )
+            # Per-channel settings button: opens the JS popup with this channel's
+            # Soil Dry/Wet, Dry threshold and Soak start dose (current values in
+            # data-* attrs). Lives in the Уставки group. The popup itself sits in
+            # document.body (outside #l1) so it survives the 2.3s polling redraw;
+            # see _wdSettingsOpen in web_add_main_button().
+            msg = msg .. string.format(
+                wrow("Настройки порогов",
+                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' " ..
+                     wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
+                num, ss.RawDry, ss.RawWet,
+                plant.DryThreshold, str(ss.Store.get(ss.Prefix .. 'SoakStartDose')))
+            msg = msg .. wgrp("Датчик")
+            # Values may be nil until the first sensor Update (unconnected
+            # channels). Guard each one: show "nil" instead of crashing the
+            # whole section (which would drop the header and make the accordion
+            # un-collapsible).
+            var rawv = ss.Raw != nil ? str(ss.Raw) : "nil"
+            var rawema = ss.RawEma != nil ? string.format("%01.4f", ss.RawEma) : "nil"
+            var hu = ss.RawEma != nil ? string.format("%01.1f%%", ss.Raw2Hu(ss.RawEma)) : "nil"
+            var mv = ss.Raw != nil ? string.format("%01.1f mV", ss.Raw2mV(ss.Raw)) : "nil"
+            msg = msg .. string.format(
+                wrow("Raw", "%s") .. wrow("Raw EMA(%i)", "%s"),
+                rawv, ss.EMAN, rawema)
+            msg = msg .. string.format(
+                wrow("Hymidity u", "%s") .. wrow("mV", "%s"),
+                hu, mv)
+            tasmota.web_send_decimal(msg)
             var dry_status = "none"
             if plant.Preset != nil && plant.Preset.Type == 'dry'
                 dry_status = "soak, dose " .. (plant.DrySoakDose != nil ? str(plant.DrySoakDose) : "?")
@@ -1713,7 +1709,7 @@ class Watering
                     pump = pump .. " " .. string.format("%01.1f", rate * 60) .. " ml/min"
                 end
             end
-            var msg = string.format(
+            msg = string.format(
                       wgrp("Сеанс") .. wrow("Сеанс полива", "%s") .. wrow("Вода", "%s"),
                       sess, pump)
             tasmota.web_send_decimal(msg)
@@ -1797,13 +1793,15 @@ class Watering
             # Per-channel settings (popup in each channel detail): args carry a
             # channel suffix m_soildry_N / m_soilwet_N / m_drythr_N / m_soakdose_N.
             # The bare args (m_soildry etc.) still mean channel 1 (legacy forms).
+            # One field table shared conceptually with the JS popup (_wdF in
+            # web_add_main_button): adding a field = one row here + one in _wdF.
             for i: 1..self.NumChannels
                 var s = str(i)
                 var ss = self.SoilSensors[i - 1]
-                var sfx = "_" .. s
-                if i == 1
-                    sfx = ""
-                end
+                var pl = self.plants[i - 1]
+                var sfx = i == 1 ? "" : "_" .. s
+                # Dry/Wet are validated by the sensor (gap > 20). Dry threshold
+                # and soak dose are plain int > 0 stored on the plant / Store.
                 if webserver.has_arg("m_soildry" .. sfx)
                     if ss.SetDry(int(webserver.arg("m_soildry" .. sfx)))
                         print("web_sensor: channel " .. s .. " Soil Dry threshold set to " .. ss.RawDry)
@@ -1818,7 +1816,6 @@ class Watering
                         print("web_sensor: channel " .. s .. " Soil Wet threshold rejected")
                     end
                 end
-                var pl = self.plants[i - 1]
                 if webserver.has_arg("m_drythr" .. sfx)
                     var dt = int(webserver.arg("m_drythr" .. sfx))
                     if dt != nil && dt > 0
@@ -1891,7 +1888,7 @@ class Watering
                 msg = string.format(
                           wgrp("Сброс") ..
                           wrow("Water counter",
-                               "<a class='wcbtn' href='#' onclick='if(confirm(\"Сбросить счётчик воды?\")){la(\"&m_reset_water_counter_1=1\");}return false;'>Reset</a>"))
+                               "<a class='wcbtn' href='#' " .. wonclick('if(confirm("Сбросить счётчик воды?")){la("&m_reset_water_counter_1=1");}return false;') .. ">Reset</a>"))
                 tasmota.web_send_decimal(msg)
             except .. as e
                 print("web_sensor: reset counter row failed " .. e)
