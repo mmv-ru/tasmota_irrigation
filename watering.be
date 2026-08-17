@@ -44,6 +44,11 @@ def wtoggle(sec)
     return wonclick('_secToggle("' .. sec .. '");return false;')
 end
 
+# Header badge (raw/сухо/влажно pill in the section header row).
+def wpill(label, value)
+    return "<span class='pill'><b>" .. label .. "</b> " .. value .. "</span>"
+end
+
 class AbstractSensor
     var Name
     var SensorID
@@ -292,10 +297,9 @@ class SoilSensor: AbstractSensor
         msg = msg .. "<span class='st " .. stc .. "' " .. wonclick('_wdShowTT(this,event)') .. ">" .. st .. "</span>" .. nm
         msg = msg .. "<span class='params'>"
         if self.RawEma != nil
-            msg = msg .. "<span class='pill'><b>raw</b> " .. string.format("%01.2f", self.RawEma) .. "</span>"
+            msg = msg .. wpill("raw", string.format("%01.2f", self.RawEma))
         end
-        msg = msg .. "<span class='pill'><b>сухо</b> " .. str(self.RawDry) .. "</span>" ..
-                    "<span class='pill'><b>влажно</b> " .. str(self.RawWet) .. "</span></span>" ..
+        msg = msg .. wpill("сухо", str(self.RawDry)) .. wpill("влажно", str(self.RawWet)) .. "</span>" ..
                     "</th><td class='tgl'><a class='chev' href='#' " .. wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
         # Expanded rows (Уставки/Датчик/settings button) live in
         # Watering.web_soil_detail — one method owns the whole channel detail.
@@ -422,7 +426,7 @@ class FlowSensor: AbstractSensor
                   self.Raw2Flow(self.Raw))
         if expanded
             msg = msg .. string.format(
-                      wrow("Water flow", "%i pulse/s") .. wrow("Water flow", "%01.1f ml/min"),
+                      wrow("Water flow", "%i pulse/s<br/><span class='stk'>%01.1f ml/min</span>"),
                       self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
         end
 
@@ -1621,7 +1625,7 @@ class Watering
         jsp.push("t.style.left=x+'px';t.style.top=y+'px';};")
         jsp.push("document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);")
         jsp.push("window._wdSett=null;")
-        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose','m_soakdose_','dose']];")
+        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose','m_soakdose_','dose'],['wds_ema','EMA period','m_ema_','ema']];")
         jsp.push("window._wdSettingsOpen=function(a){")
         jsp.push("if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';d.innerHTML='<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div><div class=\"bd\">';")
         jsp.push("for(var i=0;i<_wdF.length;i++){d.innerHTML+='<label>'+_wdF[i][1]+' <input id=\"'+_wdF[i][0]+'\" type=\"text\"></label>';}")
@@ -1675,10 +1679,10 @@ class Watering
             # see _wdSettingsOpen in web_add_main_button().
             msg = msg .. string.format(
                 wrow("Настройки порогов",
-                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' " ..
+                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' data-ema='%i' " ..
                      wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
                 num, ss.RawDry, ss.RawWet,
-                plant.DryThreshold, str(ss.Store.get(ss.Prefix .. 'SoakStartDose')))
+                plant.DryThreshold, str(ss.Store.get(ss.Prefix .. 'SoakStartDose')), ss.EMAN)
             msg = msg .. wgrp("Датчик")
             # Values may be nil until the first sensor Update (unconnected
             # channels). Guard each one: show "nil" instead of crashing the
@@ -1829,6 +1833,13 @@ class Watering
                     if sd != nil && sd > 0
                         self.Store.set('P' .. s .. 'SoakStartDose', sd)
                         print("web_sensor: channel " .. s .. " Soak start dose set to " .. sd)
+                    end
+                end
+                if webserver.has_arg("m_ema" .. sfx)
+                    var ema = int(webserver.arg("m_ema" .. sfx))
+                    if ema != nil && ema > 0
+                        ss.EMAN = ema
+                        print("web_sensor: channel " .. s .. " EMA period set to " .. ema)
                     end
                 end
             end
