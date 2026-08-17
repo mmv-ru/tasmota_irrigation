@@ -292,6 +292,17 @@ class SoilSensor: AbstractSensor
                 self.RawDry, self.Raw2Hu(self.RawDry),
                 self.RawWet, self.Raw2Hu(self.RawWet)
                 )
+            # Per-channel settings button: opens the JS popup with this channel's
+            # Soil Dry/Wet, Dry threshold and Soak start dose (current values in
+            # data-* attrs). Lives in the Уставки group. The popup itself sits in
+            # document.body (outside #l1) so it survives the 2.3s polling redraw;
+            # see _wdSettingsOpen in web_add_main_button().
+            msg = msg .. string.format(
+                "<tr class='sub'><th>Настройки порогов</th><td><a class='wcbtn' "..
+                "data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' "..
+                "onclick='_wdSettingsOpen(this);return false;'>⚙</a></td></tr>",
+                plant.Num, self.RawDry, self.RawWet,
+                plant.DryThreshold, str(self.Store.get(self.Prefix .. 'SoakStartDose')))
             msg = msg .. "<tr class='grp'><td colspan='2'>Датчик</td></tr>"
             # Values may be nil until the first sensor Update (unconnected
             # channels). Guard each one: show "nil" instead of crashing the
@@ -1699,18 +1710,6 @@ class Watering
                       "<tr class='sub'><th>Dry soak</th><td>%s</td></tr>"..
                       "<tr class='sub'><th>Dry threshold</th><td>%i</td></tr>",
                       dry_status, plant.DryThreshold)
-            tasmota.web_send_decimal(msg)
-            # Per-channel settings button: opens a JS popup with this channel's
-            # Soil Dry/Wet, Dry threshold and Soak start dose (current values in
-            # data-* attrs). The popup lives in document.body (outside #l1) so it
-            # survives the 2.3s polling redraw; see _wdSettingsOpen in
-            # web_add_main_button().
-            msg = string.format(
-                      "<tr class='sub'><th>Настройки</th><td><a class='wcbtn' "..
-                      "data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' "..
-                      "onclick='_wdSettingsOpen(this);return false;'>⚙ Полив</a></td></tr>",
-                      num, plant.SoilSensor.RawDry, plant.SoilSensor.RawWet,
-                      plant.DryThreshold, str(self.Store.get(plant.Prefix .. 'SoakStartDose')))
             tasmota.web_send_decimal(msg)
             msg = "<tr class='grp'><td colspan='2'>Текущий сеанс</td></tr>"
             if plant.SoilMaxHymidity != nil

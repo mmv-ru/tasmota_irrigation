@@ -124,7 +124,7 @@ assert_true(string.find(j6, "LastFloodVol") >= 0, "channel 2 session row shown w
 assert_true(string.find(j6, "SoilHymidity1 max") < 0, "channel 1 max hidden when me=2")
 # per-channel settings button: present in the expanded channel detail with the
 # channel number and its own thresholds in data-* attrs
-assert_true(string.find(j6, "Настройки</th>") >= 0, "settings row under expanded channel")
+assert_true(string.find(j6, "Настройки порогов</th>") >= 0, "settings row under expanded channel")
 assert_true(string.find(j6, "data-num='2'") >= 0, "settings button carries the channel number")
 assert_true(string.find(j6, "_wdSettingsOpen(this)") >= 0, "settings button opens the JS popup")
 
