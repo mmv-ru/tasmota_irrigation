@@ -21,8 +21,9 @@ wp1.auto_flood()
 assert_eq(P1.AutofloodInProcess, true, "channel 1 session started")
 assert_true(cmds_include("Power1 1"), "Power1 commanded")
 assert_true(!cmds_include("Power2 1"), "channel 2 not started")
+tasmota.set_power(0, true)
 wp1.rule_power({'State': 1}, 'POWER1')
-assert_eq(P1.PowerN, 1, "channel 1 relay ON")
+assert_true(P1.WaterIsOn(), "channel 1 relay ON")
 
 section("sweep_skipped_while_relay_on")
 
@@ -36,8 +37,9 @@ section("next_due_channel_wins_round_robin")
 
 # channel 1 fill finishes (relay OFF, water recorded)
 SIM['sensors']['COUNTER']['C1'] = 250
+tasmota.set_power(0, false)
 wp1.rule_power({'State': 0}, 'POWER1')
-assert_eq(P1.PowerN, 0, "channel 1 relay released")
+assert_true(!P1.WaterIsOn(), "channel 1 relay released")
 assert_eq(P1.AutofloodInProcess, true, "channel 1 session still pending its soil check")
 
 # next sweep: channel 1 is not due (session open), channel 2 takes the slot
@@ -45,13 +47,15 @@ SIM['cmds'] = list()
 wp1.auto_flood()
 assert_eq(P2.AutofloodInProcess, true, "channel 2 started next")
 assert_true(cmds_include("Power2 1"), "Power2 commanded")
+tasmota.set_power(1, true)
 wp1.rule_power({'State': 1}, 'POWER2')
-assert_eq(P2.PowerN, 1, "channel 2 relay ON")
+assert_true(P2.WaterIsOn(), "channel 2 relay ON")
 
 section("round_robin_wraps_to_first")
 
 # channel 2 finishes; close both sessions (wet soil -> autoflood_end)
 SIM['sensors']['COUNTER']['C1'] = 500
+tasmota.set_power(1, false)
 wp1.rule_power({'State': 0}, 'POWER2')
 SIM['sensors']['ANALOG']['A1'] = 740
 SIM['sensors']['ANALOG']['A2'] = 740

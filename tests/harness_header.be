@@ -50,6 +50,7 @@ var SIM = {
     'websend': list(),
     'append': list(),
 }
+var SIM_POWER = [false, false, false, false]
 SIM['sensors'] = {'ANALOG': {'A1': 900, 'A2': 900}, 'COUNTER': {'C1': 0, 'C2': 0}}
 
 def SIM_CMD(s)
@@ -111,8 +112,9 @@ tasmota.resp_cmnd_done = def () end
 tasmota.resp_cmnd_error = def () end
 tasmota.resp_cmnd_failed = def () end
 tasmota.resp_cmnd_str = def (m) end
-tasmota.get_power = def (i) return nil end
+tasmota.get_power = def (i) return SIM_POWER[i] end
 tasmota.set_power = def (idx, onoff)
+    SIM_POWER[idx] = onoff ? true : false
     SIM_CMD("Power" .. (idx+1) .. " " .. (onoff ? "1" : "0"))
 end
 tasmota.strftime = def (f, t) return "2023-01-01 10:00:00" end

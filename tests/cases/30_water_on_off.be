@@ -7,8 +7,9 @@ section("dispatcher_routes_to_water_on")
 SIM['sensors']['ANALOG']['A1'] = 900
 SIM['millis'] = 1000
 SIM['cmds'] = list()
+tasmota.set_power(0, true)
 wp1.rule_power({'State': 1}, 'POWER1')
-assert_eq(wp1.plants[0].PowerN, 1, "relay on via dispatcher")
+assert_true(wp1.plants[0].WaterIsOn(), "relay on via dispatcher")
 assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=200", "finish rule set")
 assert_true(cmds_include("TelePeriod 10"), "fast telemetry during pump")
 
@@ -18,7 +19,7 @@ section("water_on_aborts_when_wet")
 SIM['sensors']['ANALOG']['A1'] = 740
 wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
 wp1.plants[0].FinishRule = nil
-wp1.plants[0].PowerN = 0
+tasmota.set_power(0, true)
 SIM['cmds'] = list()
 wp1.plants[0].water_on()
 assert_true(cmds_include("Power1 0"), "pump turned off on wet soil")
@@ -29,8 +30,9 @@ section("water_on_dry_starts_session")
 SIM['sensors']['ANALOG']['A1'] = 900
 wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
 SIM['cmds'] = list()
+tasmota.set_power(0, true)
 wp1.plants[0].water_on()
-assert_eq(wp1.plants[0].PowerN, 1, "pump on")
+assert_true(wp1.plants[0].WaterIsOn(), "pump on")
 assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=200", "finish rule set")
 assert_true(wp1.plants[0].Counter1BeforeStart == 0, "start counter captured")
 assert_true(SIM['timers'].find("ID_ENDFASTTELE") == nil, "no pending fast-tele timer")
@@ -40,8 +42,9 @@ section("water_off_records_flood")
 # counter advanced -> water_off compensates and records the flood
 SIM['sensors']['COUNTER']['C1'] = 250
 SIM['cmds'] = list()
+tasmota.set_power(0, false)
 wp1.plants[0].water_off()
-assert_eq(wp1.plants[0].PowerN, 0, "pump flag cleared")
+assert_true(!wp1.plants[0].WaterIsOn(), "pump off")
 assert_true(cmds_include("counter1 250"), "counter preset via water_off")
 assert_true(real(wp1.plants[0].LastFloodVol) == 250, "flood volume accumulated")
 assert_true(wp1.plants[0].FinishRule == nil, "finish rule cleared")

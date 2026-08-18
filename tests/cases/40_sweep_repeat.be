@@ -25,6 +25,7 @@ section("soil_check_repeats_while_dry")
 
 # fill finishes; relay released; soil still dry -> repeat fill requested
 SIM['sensors']['COUNTER']['C1'] = 250
+tasmota.set_power(0, false)
 wp1.rule_power({'State': 0}, 'POWER1')
 assert_eq(P1.AutofloodInProcess, true, "session open awaiting soil check")
 SIM['cmds'] = list()
@@ -41,6 +42,7 @@ P1.timer_soil_transition_after_flooded()
 assert_true(!cmds_include("Power1 1"), "no repeat while wet")
 assert_eq(P1.AutofloodInProcess, false, "session closed")
 assert_eq(P1.Preset, nil, "preset released")
+tasmota.set_power(0, false)
 
 section("sweep_picks_next_due_channel")
 

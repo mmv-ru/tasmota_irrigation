@@ -33,6 +33,7 @@ assert_eq(SIM['cmds'].size(), cmds_len, "no double start while in process")
 
 # force end of session, then wet soil -> no start
 wp1.plants[0].AutofloodInProcess = false
+tasmota.set_power(0, false)
 SIM['sensors']['ANALOG']['A1'] = 740
 wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
 wp1.auto_flood()

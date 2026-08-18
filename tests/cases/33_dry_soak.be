@@ -22,6 +22,9 @@ assert_eq(persist.saves, 0, "dry session does not persist prev-stats (WriteStats
 assert_true(!persist.has('P1PrevFloodedVol'), "PrevFloodedVol not written by dry session")
 assert_true(P1.Preset.AdaptMode == 'trend', "dry preset uses trend adaptation")
 
+# The flood completed (relay released) before the soil checks below run.
+tasmota.set_power(0, false)
+
 section("dry_record_flood_uses_soak_interval")
 
 # completed flood under the dry preset -> SoakInterval cadence + daily tracking
@@ -57,6 +60,7 @@ P1.DrySoakDose = 100
 wp1.SoilSensors[0].RawEma = 900
 SIM['millis'] = 24*60*60*1000
 SIM['cmds'] = list()
+tasmota.set_power(0, false)
 P1.timer_soil_transition_after_flooded()
 assert_true(cmds_include("Power1 1"), "repeat flood commanded after window")
 assert_eq(P1.DrySoakDose, 120, "no response over the window -> dose x1.2")
@@ -71,6 +75,7 @@ P1.DrySoakDose = 1900
 wp1.SoilSensors[0].RawEma = 900
 SIM['millis'] = 24*60*60*1000
 SIM['cmds'] = list()
+tasmota.set_power(0, false)
 P1.timer_soil_transition_after_flooded()
 assert_eq(P1.DrySoakDose, 2000, "dry dose capped at SoakMaxDose")
 
@@ -84,6 +89,7 @@ P1.DrySoakDose = 100
 wp1.SoilSensors[0].RawEma = 850
 SIM['millis'] = 24*60*60*1000
 SIM['cmds'] = list()
+tasmota.set_power(0, false)
 P1.timer_soil_transition_after_flooded()
 assert_true(!cmds_include("Power1 1"), "no watering while humidity rises")
 assert_eq(P1.DrySoakDose, 100, "dose untouched on hold")
@@ -144,6 +150,7 @@ assert_true(string.find(SIM['lastresp'], 'preset=') >= 0, "status contains prese
 # manual start: forces the dry preset and floods with the start dose
 wp1.SoilSensors[0].RawEma = 900
 P1.Preset = nil
+tasmota.set_power(0, false)
 SIM['cmds'] = list()
 SIM['cmnds']['DrySoak']('DrySoak', 0, 'start', '')
 assert_true(P1.Preset != nil && P1.Preset.Type == 'dry', "start forces dry preset")

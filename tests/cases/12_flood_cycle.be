@@ -6,9 +6,10 @@ section("flood_cycle_setup")
 # dry soil, start pump
 SIM['sensors']['ANALOG']['A1'] = 900
 SIM['millis'] = 5000
+tasmota.set_power(0, true)
 wp1.rule_power({'State': 1}, 'POWER1')
 assert_eq(wp1.plants[0].FinishRule, "COUNTER#C1>=200", "default finish rule")
-assert_eq(wp1.plants[0].PowerN, 1, "pump on")
+assert_true(wp1.plants[0].WaterIsOn(), "pump on")
 
 section("counter_reaches_limit")
 
@@ -21,8 +22,9 @@ assert_true(cmds_include("Power1 0"), "rule_flooded turns pump off")
 section("pump_off_compensation")
 
 # pump reports OFF after the flooded rule; counter delta = 350 - 0(start) = 350
+tasmota.set_power(0, false)
 wp1.rule_power({'State': 0}, 'POWER1')
-assert_eq(wp1.plants[0].PowerN, 0, "pump flag cleared")
+assert_true(!wp1.plants[0].WaterIsOn(), "pump off")
 assert_true(cmds_include("counter1 350"), "counter compensated by full delta")
 assert_true(wp1.plants[0].LastFloodVol != nil && real(wp1.plants[0].LastFloodVol) == 350, "LastFloodVol accumulated")
 assert_true(wp1.plants[0].FinishRule == nil, "finish rule cleared")

@@ -15,8 +15,9 @@ wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
 wp1.SoilSensors[1].Update(json.load(tasmota.read_sensors()))
 SIM['cmds'] = list()
 wp1.auto_flood()
+tasmota.set_power(0, true)
 wp1.rule_power({'State': 1}, 'POWER1')
-assert_eq(P1.PowerN, 1, "channel 1 pumping")
+assert_true(P1.WaterIsOn(), "channel 1 pumping")
 
 # channel 2 is mid-session and its post-flood soil check wants a repeat fill
 P2.AutofloodInProcess = true
@@ -35,6 +36,7 @@ section("repeat_fires_after_relay_freed")
 
 # channel 1 finishes; the deferred repeat is free to start
 SIM['sensors']['COUNTER']['C1'] = 250
+tasmota.set_power(0, false)
 wp1.rule_power({'State': 0}, 'POWER1')
 assert_eq(wp1._flooding_plant(), nil, "no relay ON")
 
@@ -47,10 +49,11 @@ section("manual_flood_deferred_during_pump")
 
 # channel 1 pumping again; a manual start for channel 2 must be deferred
 P2.AutofloodInProcess = false
-P2.PowerN = 0
+tasmota.set_power(1, false)
 P2.Preset = nil
+tasmota.set_power(0, true)
 wp1.rule_power({'State': 1}, 'POWER1')
-assert_eq(P1.PowerN, 1, "channel 1 pumping")
+assert_true(P1.WaterIsOn(), "channel 1 pumping")
 SIM['cmds'] = list()
 P2.SoilSensor.RawEma = 900
 wp1.request_manual(P2)
@@ -59,6 +62,7 @@ assert_eq(P2.AutofloodInProcess, false, "no session started")
 
 # relay freed -> manual start goes through
 SIM['sensors']['COUNTER']['C1'] = 250
+tasmota.set_power(0, false)
 wp1.rule_power({'State': 0}, 'POWER1')
 SIM['cmds'] = list()
 wp1.request_manual(P2)

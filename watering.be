@@ -283,7 +283,7 @@ class SoilSensor: AbstractSensor
         # three states, the current one marked "→".
         var st = "💧"
         var stc = "wait"
-        if plant.PowerN == 1
+        if plant.WaterIsOn()
             st = "💦"
             stc = "run"
         elif plant.AutofloodInProcess
@@ -749,7 +749,6 @@ class Plant
     var SoilMaxHymidityTimeTemp
     var LastFloodTime
     var LastFloodVol
-    var PowerN
     var SoilHPreFlood
     var PrevSoilMaxHymidity
     var PrevSoilHPreFlood
@@ -789,7 +788,6 @@ class Plant
         # self.Counter1Backflow = 133
         self.Counter1Backflow = 0
         self.Counter1FloodDefault = 200
-        self.PowerN = 0
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
         self.Counter1ResetPostpone = false
@@ -806,6 +804,10 @@ class Plant
         return self.SoilSensor.IsDry() && !self.AutofloodInProcess
     end
 
+    def WaterIsOn()
+        return tasmota.get_power(self.Num - 1)
+    end
+
     def rule_power(value)
         if value['State'] == 1
             self.water_on()
@@ -819,7 +821,6 @@ class Plant
     def water_on()
         self.PumpStartMillis = tasmota.millis()
         print("Water pump " .. str(self.Num) .. " ON")
-        self.PowerN = 1
         if self.SoilSensor.IsWet()
             print("Too wet to flood. Stop pump.")
             tasmota.set_power(self.Num - 1, false)
@@ -861,7 +862,6 @@ class Plant
             log("Pump stop without run.", 1)
         end
         print("Water pump " .. str(self.Num) .. " OFF")
-        self.PowerN = 0
         if self.FinishRule
             tasmota.remove_rule(self.FinishRule)
             self.FinishRule = nil
@@ -1177,7 +1177,7 @@ class Watering
     def _flooding_plant()
         # The channel whose relay is currently ON (shared counter -> serialised).
         for p: self.plants
-            if p.PowerN == 1
+            if p.WaterIsOn()
                 return p
             end
         end
@@ -1706,8 +1706,8 @@ class Watering
             # Session: active (flooding in progress) / wait. Pump: run|idle;
             # the live flow rate (ml/min) is shown while the pump runs.
             var sess = plant.AutofloodInProcess ? "active" : "wait"
-            var pump = plant.PowerN == 1 ? "run" : "idle"
-            if plant.PowerN == 1
+            var pump = plant.WaterIsOn() ? "run" : "idle"
+            if plant.WaterIsOn()
                 var rate = self.FlowSensors[0].Rate
                 if rate != nil
                     pump = pump .. " " .. string.format("%01.1f", rate * 60) .. " ml/min"

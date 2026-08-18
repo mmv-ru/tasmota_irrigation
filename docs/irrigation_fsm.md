@@ -74,7 +74,7 @@ flowchart TD
 
     %% ===================== water_on =====================
     subgraph RULE_ON["Plant.water_on() — старт помпы"]
-        RULE_ON_START --> RON_START["PumpStartMillis=now, PowerN=1"]
+        RULE_ON_START --> RON_START["PumpStartMillis=now, WaterIsOn()=true"]
         RON_START --> RON_WET{"IsWet() (почва уже мокрая)?"}
         RON_WET -- да --> RON_ABORT["Power{Num} 0 — отмена, помпа не запускается"]
         RON_ABORT --> EV_PW_OFF
@@ -187,7 +187,7 @@ flowchart TD
 |-------|-----------|
 | `auto_flood()` | Sweep-планировщик по cron (часы 14–01): если `_flooding_plant() == nil` — round-robin по `_rr_idx`, стартует ровно ОДИН due-канал (`Plant.due()`) через `start_session()`; очередь НЕ ведётся, `due()` производное |
 | `rule_power(value, trigger)` | Диспетчер `POWER{Num}#State`: `PowerMap[trigger]` → `Plant.rule_power(value)`; неизвестный trigger — WARNING |
-| `_flooding_plant()` | Возвращает канал с `PowerN == 1` (реле ON) или nil — основа сериализации общего C1 |
+| `_flooding_plant()` | Возвращает канал с `WaterIsOn() == true` (реле ON) или nil — основа сериализации общего C1 |
 | `request_repeat(plant)` | Арбитраж повтора: при `_flooding_plant() != nil` — retry-пере-арм soil-таймера канала (60с); иначе `plant.start_flood()` |
 | `request_manual(plant)` | Ручной запуск (кнопка/`DrySoak start`) с тем же guardian, что и `request_repeat` |
 | `init_sensors()` | Создаёт SoilSensors A1..A4, общие FlowSensors C1/C2, `Plant(0..3)`, `PowerMap`, правила `POWER{Num}`, `PulseTime{Num}`, cron, команды; правила каналов/кнопки снимаются в `deinit()` |
@@ -237,7 +237,7 @@ flowchart TD
 | `Counter1ResetPostpone` | запрошен сброс счётчика, но отложен до конца сессии канала |
 | `PlannedFlood` | запланированный объём дозы (мл) для текущего запуска: `Preset.dose()`; выставляется внутри `start_flood()` (пока `RawEma > RawWet`) |
 | `FinishRule` | активное правило `COUNTER#C1>=...` канала; снимается при остановке помпы |
-| `PowerN` | 1 — реле канала включено (флаг, им управляет событие `POWER{Num}#State`) |
+| `WaterIsOn()` | Читает `tasmota.get_power(Num-1)` напрямую (реле канала); источник правды — железо, кэша нет |
 | `SoilMaxHymidity` | последний **подтверждённый** минимум влажности (non-nil = подтверждено); persist `P{Num}SoilMaxHymidity` — после ребута восстанавливается и сразу эмитится в телеметрию |
 | `SoilMaxHymidityTemp` | текущий трекаемый минимум (в память, не персистится); подтверждается после роста `RawEma > Temp+5` на новом минимуме и переносится в `SoilMaxHymidity` |
 
@@ -253,7 +253,7 @@ timer_soil_transition_after_flooded →
                   | нет отклика → DrySoakDose×1.2 (кап MaxDose) + repeat
                   | DailyCap → pause (пере-арм)
                   | влажность растёт → hold (пере-арм)
-Арбитраж: пока любой канал имеет PowerN==1 (_flooding_plant != nil), sweep пропускается,
+Арбитраж: пока любой канал имеет WaterIsOn() (_flooding_plant != nil), sweep пропускается,
 а repeat/manual откладывается на 60с (retry-пере-арм soil-таймера) — общий счётчик C1 сериализует заливки.
 ```
 
