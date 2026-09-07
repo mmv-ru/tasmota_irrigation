@@ -63,4 +63,23 @@ assert_eq(new_fs.LastMillis, stamped, "no redundant Update on no state change")
 new_fs.RateMeasuring = false
 assert_eq(new_fs.member("RateMeasuring"), false, "setmember disables rate measuring")
 
+section("flow_scale_store_default_and_override")
+
+# the built-in scale is applied by init_sensors unless a persisted FlowScale
+# value exists (calibrated from the /svc page)
+var stored = wp1.FlowSensors[0].Scale
+assert_eq(stored, 0.1449, "fresh init uses the built-in default scale")
+
+# persist an override, re-init the driver (BrRestart) -> scale restored
+wp1.Store.set('FlowScale', '0.25')
+wp1.deinit()
+wp1 = Watering()
+assert_eq(wp1.FlowSensors[0].Scale, 0.25, "stored FlowScale applied on init")
+
+# corrupt persisted value falls back to the built-in scale
+persist.FlowScale = 'abc'
+wp1.deinit()
+wp1 = Watering()
+assert_eq(wp1.FlowSensors[0].Scale, 0.1449, "corrupt stored scale falls back to built-in")
+
 # ---------------- finished ----------------

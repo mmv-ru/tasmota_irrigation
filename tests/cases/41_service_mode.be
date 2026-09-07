@@ -1,4 +1,5 @@
-# Characterization: service mode (enter/exit/timeout, auto-flood blocking, banner)
+# Characterization: service mode (enter/exit/timeout, auto-flood blocking, banner,
+# channel control and flow calibration on the /svc page)
 import json
 
 section("service_mode_initial_off")
@@ -99,5 +100,186 @@ var was = wp1.ServiceMode
 webserver.has_arg = def (name) return false end
 wp1.page_service()
 assert_eq(wp1.ServiceMode, was, "plain page load does not change the mode")
+
+# ------------- stage 3: service pump runs + calibration -------------
+
+var P1 = wp1.plants[0]
+var P2 = wp1.plants[1]
+var F0 = wp1.FlowSensors[0]
+var St = wp1.Store
+
+section("service_run_ticks_and_result")
+
+# a service pump start captures the shared counter and the run duration; the
+# stop reports the raw tick delta in ServiceResult without compensating the
+# counter, without a finish rule and without session bookkeeping
+wp1.ServiceMode = true
+tasmota.set_power(0, false)
+tasmota.set_power(1, false)
+SIM['sensors']['COUNTER']['C1'] = 500
+F0.Update(json.load(tasmota.read_sensors()))
+SIM['millis'] = 1000
+SIM['cmds'] = list()
+SIM['timers'] = map()
+tasmota.set_power(0, true)
+wp1.rule_power({'State': 1}, 'POWER1')
+assert_eq(P1.WaterIsOn(), true, "service pump relay on")
+assert_eq(P1.ServiceRun, true, "plant flagged as a service run")
+assert_eq(wp1.ServiceResult, nil, "no result before the stop")
+assert_eq(P1.Counter1BeforeStart, 500, "shared counter snapshotted at start")
+assert_true(cmds_include("TelePeriod 10"), "fast telemetry during the service run")
+assert_eq(P1.FinishRule, nil, "no counter finish rule for service runs")
+assert_true(SIM['timers'].find("ID_ENDFASTTELE") == nil, "no fast-tele reset timer while running")
+
+# a repeated start while already running is ignored (counter not re-snapped)
+var csnap = P1.Counter1BeforeStart
+P1.water_on()
+assert_eq(P1.ServiceRun, true, "service run survives a repeated start")
+assert_eq(P1.Counter1BeforeStart, csnap, "counter snapshot not re-taken")
+
+# stop reports the run
+SIM['sensors']['COUNTER']['C1'] = 750
+SIM['millis'] = 1000 + 60000
+SIM['cmds'] = list()
+SIM['timers'] = map()
+tasmota.set_power(0, false)
+wp1.rule_power({'State': 0}, 'POWER1')
+assert_eq(P1.WaterIsOn(), false, "service pump relay off")
+assert_eq(P1.ServiceRun, false, "service run closed")
+var sr1 = wp1.ServiceResult
+assert_true(sr1 != nil, "service stop reported a result")
+assert_eq(sr1['num'], 1, "result names the channel")
+assert_eq(sr1['ticks'], 250, "result carries the raw tick delta")
+assert_eq(sr1['millis'], 60000, "result carries the run duration")
+assert_true(SIM['timers'].find("ID_ENDFASTTELE") != nil, "fast-tele end timer armed after stop")
+assert_eq(F0.RateMeasuring, false, "rate measurement stopped")
+assert_true(!cmds_include("counter1"), "shared counter untouched by the service stop")
+
+section("service_calibrate_volume")
+
+# ?cal=1&vol=ml: scale = measured volume / last-run ticks (1000 ml / 250 = 4.0),
+# persisted globally via the /svc page
+webserver.has_arg = def (name) return name == 'cal' || name == 'vol' end
+webserver.arg = def (name, dflt) if name == 'vol' return '1000' end return dflt end
+SIM['webhtml'] = list()
+wp1.page_service()
+assert_eq(F0.Scale, 4.0, "scale derived from volume/ticks (1000/250)")
+assert_eq(real(St.get('FlowScale')), 4.0, "calibrated scale persisted")
+var pcal = ""
+for m: SIM['webhtml'] pcal = pcal + m end
+assert_true(string.find(pcal, "Калибровка датчика потока") >= 0, "calibration fieldset on the page")
+assert_true(string.find(pcal, "4.0000") >= 0, "page shows the current scale")
+
+section("service_calibrate_bad_inputs")
+
+var cs = F0.Scale
+webserver.has_arg = def (name) return name == 'cal' end
+webserver.arg = def (name, dflt) return dflt end
+wp1.page_service()
+assert_eq(F0.Scale, cs, "cal without a volume ignored")
+webserver.has_arg = def (name) return name == 'cal' || name == 'vol' end
+webserver.arg = def (name, dflt) if name == 'vol' return 'abc' end return dflt end
+wp1.page_service()
+assert_eq(F0.Scale, cs, "non-numeric volume ignored")
+webserver.arg = def (name, dflt) if name == 'vol' return '0' end return dflt end
+wp1.page_service()
+assert_eq(F0.Scale, cs, "zero volume ignored")
+
+section("service_set_scale_manual")
+
+# ?set=1&scale=coef applies and persists a manual ml-per-tick coefficient
+webserver.has_arg = def (name) return name == 'set' || name == 'scale' end
+webserver.arg = def (name, dflt) if name == 'scale' return '0.5' end return dflt end
+wp1.page_service()
+assert_eq(F0.Scale, 0.5, "manual coefficient applied")
+assert_eq(real(St.get('FlowScale')), 0.5, "manual coefficient persisted")
+var ms = F0.Scale
+webserver.arg = def (name, dflt) if name == 'scale' return 'abc' end return dflt end
+wp1.page_service()
+assert_eq(F0.Scale, ms, "non-numeric coefficient ignored")
+webserver.arg = def (name, dflt) if name == 'scale' return '0' end return dflt end
+wp1.page_service()
+assert_eq(F0.Scale, ms, "zero/negative coefficient ignored")
+
+section("service_busy_shared_counter")
+
+# another channel mid-(service)run: the page must reject a second pump start
+# (its water would leak into the other run's tick delta)
+tasmota.set_power(1, false)
+SIM['sensors']['COUNTER']['C1'] = 600
+F0.Update(json.load(tasmota.read_sensors()))
+SIM['timers'] = map()
+tasmota.set_power(0, true)
+wp1.rule_power({'State': 1}, 'POWER1')
+assert_eq(P1.ServiceRun, true, "P1 service run active")
+SIM['cmds'] = list()
+webserver.has_arg = def (name) return name == 'pump' || name == 'on' end
+webserver.arg = def (name, dflt) if name == 'pump' return '2' end return dflt end
+wp1.page_service()
+assert_true(!cmds_include("Power2 1"), "page rejected the second pump start (shared C1 busy)")
+assert_eq(P2.WaterIsOn(), false, "channel 2 relay untouched")
+SIM['sensors']['COUNTER']['C1'] = 800
+SIM['timers'] = map()
+tasmota.set_power(0, false)
+wp1.rule_power({'State': 0}, 'POWER1')
+assert_eq(P1.ServiceRun, false, "P1 service run stopped")
+
+section("service_page_pump_commands")
+
+# the page issues the relay command; the POWER#State rule then dispatches into
+# the service branches (dispatched manually below to mirror the real flow)
+webserver.has_arg = def (name) return name == 'pump' || name == 'on' end
+webserver.arg = def (name, dflt) if name == 'pump' return '1' end return dflt end
+SIM['cmds'] = list()
+wp1.page_service()
+assert_true(cmds_include("Power1 1"), "page ON issues the relay command")
+assert_eq(P1.WaterIsOn(), true, "relay on after page ON")
+
+SIM['cmds'] = list()
+wp1.page_service()
+assert_true(!cmds_include("Power1 1"), "repeated page ON while already on is a no-op")
+
+webserver.has_arg = def (name) return name == 'pump' || name == 'off' end
+SIM['cmds'] = list()
+wp1.page_service()
+assert_true(cmds_include("Power1 0"), "page OFF issues the relay command")
+assert_eq(P1.WaterIsOn(), false, "relay off after page OFF")
+
+webserver.has_arg = def (name) return name == 'pump' || name == 'on' end
+webserver.arg = def (name, dflt) if name == 'pump' return '9' end return dflt end
+SIM['cmds'] = list()
+wp1.page_service()
+assert_true(!cmds_include("Power1 1") && !cmds_include("Power5 1"), "out-of-range channel ignored")
+webserver.arg = def (name, dflt) if name == 'pump' return 'abc' end return dflt end
+wp1.page_service()
+assert_true(!cmds_include("Power1 1"), "garbage channel arg ignored")
+
+section("service_exit_stops_running_pump")
+
+# exiting the mode stops a mid-run service pump via the relay; the rule then
+# closes the run and fills the result
+tasmota.set_power(0, false)
+tasmota.set_power(1, false)
+SIM['sensors']['COUNTER']['C1'] = 300
+F0.Update(json.load(tasmota.read_sensors()))
+SIM['timers'] = map()
+SIM['cmds'] = list()
+tasmota.set_power(0, true)
+wp1.rule_power({'State': 1}, 'POWER1')
+assert_eq(P1.ServiceRun, true, "service run active before exit")
+
+SIM['cmds'] = list()
+wp1.service_exit()
+assert_eq(wp1.ServiceMode, false, "mode off after exit")
+assert_true(cmds_include("Power1 0"), "exit stops the running service pump")
+assert_eq(P1.WaterIsOn(), false, "relay turned off by exit")
+assert_true(SIM['timers'].find("ID_SERVICE_MODE_TIMEOUT") == nil, "timeout timer cleared on exit")
+
+SIM['sensors']['COUNTER']['C1'] = 400
+wp1.rule_power({'State': 0}, 'POWER1')
+assert_eq(P1.ServiceRun, false, "service run closed after the rule")
+var sr8 = wp1.ServiceResult
+assert_true(sr8 != nil, "exit stop reported a result")
+assert_eq(sr8['ticks'], 100, "exit stop tick delta (400-300)")
 
 # ---------------- finished ----------------

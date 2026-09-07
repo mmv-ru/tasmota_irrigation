@@ -2,7 +2,7 @@
 
 Характеризационные тесты логики полива. Запускаются на **локальном интерпретаторе Berry** (без железа), Tasmota-API эмулируется стабом. Цель — зафиксировать текущее поведение (`rule_power`, `auto_flood`, таймеры) до будущего рефакторинга: если после правок тесты станут красными — поведение изменилось.
 
-Актуальный набор покрывает **итерацию 2 (многоканальность)**: `Watering`-диспетчер + `Plant` на канал (свой насос `Power{Num}`, per-channel persist `P{Num}_*`, сериализация общего счётчика C1). Сводка на текущий момент: **500 PASS / 0 FAIL** (кейсы 00–40).
+Актуальный набор покрывает **итерацию 2 (многоканальность)**: `Watering`-диспетчер + `Plant` на канал (свой насос `Power{Num}`, per-channel persist `P{Num}_*`, сериализация общего счётчика C1) и **сервисный режим** (`/svc`, калибровка датчика потока). Сводка на текущий момент: **622 PASS / 0 FAIL** (кейсы 00–41).
 
 ## Как запустить
 
@@ -123,7 +123,10 @@ var P1 = wp1.plants[0]
 ```
 
 Внутри методов классов (`self.plants[0].X`) баг не проявляется; безопасны и `wp1.Store.method(...)`,
-и `wp1.SoilSensors[0].Update(...)` (цепочка global → member, без индекса посредине).
+и `wp1.SoilSensors[0].Update(...)` (цепочка global → member → **индекс → метод-вызов**).
+А вот атрибут ПОСЛЕ индекса (`wp1.FlowSensors[0].Scale`, `wp1.plants[1].WaterIsOn()` не является —
+это метод) ломается так же: **койстите и члены-списки канала/сенсоров** (`var F0 = wp1.FlowSensors[0]`,
+`var P2 = wp1.plants[1]`), см. `41_service_mode.be`.
 
 Таймеры не «тикают» сами — их зарегистрированные колбэки в `SIM['timers']` можно вызывать вручную или проверять по `id`. Имена таймеров каналов — `ID_SOILTRANSITION_AFTERFLOOD_P{Num}` (счётчик единый).
 
@@ -169,7 +172,7 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `18_json_append` | Телеметрический JSON: поля, тернарий max-confirmed/nil |
 | `19_web_sensor` | Веб-строки (сырой HTML-секции): detail soil1: группы `Уставки/Датчик/Сеанс/Размачивание/Текущий сеанс/Предыдущий сеанс`, стек `Сухо/Влажно` (`raw` + `<span class='stk'>% u`), max-ряд, Dry soak/Dry threshold при `me=1`, `me=` — нет; строки detail без префикса `|`; кнопка настроек канала: `Настройки порогов</th>` + `data-num='2'` + `_wdSettingsOpen(this)` в развёрнутом канале (`me=2`), в компакте (`me=`) НЕТ; Common-секция: `me=c` даёт flow-детали (pulse/s, ml/min — один label `Water flow` стеком `stk`) + группа `Сброс` (ряд `Water counter` с кнопкой `Reset` и `confirm(` + `m_reset_water_counter_1`, при `me=` кнопки НЕТ); пер-канал: `me=2` → свои max/max time и ряды «Текущий сеанс»/«Предыдущий сеанс» (`LastFloodVol` есть, soil1 max скрыт) и группа «Последний полив» (`Last flood time` + `Last flow rate` мл/мин — средний расход последнего полива канала, показывается только когда `LastFloodTime` уже записан), отдельной глобальной группы «Последний полив» у канала 1 внизу страницы больше НЕТ; `Сеанс полива</th>` (`active`|`wait`) и `Вода</th>` (`run`|`idle`) — только в detail развёрнутого канала: в компакте (`me=`) рядов НЕТ, у активного канала `active` ровно один раз, у idle-канала `Вода=idle`; статус-иконка в заголовке: тултип-легенда всех 3 статусов с маркером текущего (`→ 💧 Ожидание` по одному на канал в компакте, активный канал переключает на `→ ⏳ Сеанс полива`, при `WaterIsOn()` — `→ 💦 Работа насоса` + `Вода=run` с живым `ml/min`); заголовки по `NumChannels` (default 4): «Канал 1»..«Канал 4» есть, «Канал 5» нет; страница `/svc` (`page_service`): `content_start(«Сервисный режим»)`, `content_send_style`, тело с `калибровка`, кнопка `content_button(BUTTON_MAIN)`, `content_stop`; при `check_privileged_access()==false` страница ничего не эмитит |
 | `20_persist_target` | Калибровка Dry/Wet через setmember пишет TargetDry/Wet через `Store.set` (debounced: значение сразу в persist-мапу, save по 15s-таймеру/flush); init восстанавливает raw-значения |
-| `21_flow_sensor` | FlowSensor: scale/Raw2Flow, измерение расхода (RawRate), сброс, member/setmember RateMeasuring, Rate=nil-ветка |
+| `21_flow_sensor` | FlowSensor: scale/Raw2Flow, измерение расхода (RawRate), сброс, member/setmember RateMeasuring, Rate=nil-ветка; scale переживает ребут из Store-ключа `FlowScale` (пере-инит читает сохранённый `0.25`, невалидное значение → фолбэк на `0.1449`) |
 | `22_session_end` | Завершение сессии: rule_flooded, _autoflood_end, timer_endfasttele, button_pressed, rule_button1 (запуск через start_flood при сухости, skip при влажной) |
 | `23_web_deinit` | web_add_main_button (HTML: кнопка Calibration УБРАНА (заменена ссылкой «Сервисный режим» на `href='svc'`), мёртвая кнопка Toggle Conf УБРАНА, `Reset water counter` с главной УБРАН — перенесён в Common detail; инжект содержит `_wdSettingsOpen` и суффиксные `m_soildry_`; bare-форм Soil Dry/Wet/Dry threshold/Soak dose на главной НЕТ), deinit: снятие правил/cron/cmd, off насоса, `Store.flush(true)` (persist.save) |
 | `24_soil_sensor` | SoilSensor: init-поля из persist, EMA (сходимость/прилипание при малых Raw), статус N/C, Dry/Wet-пороги |
@@ -189,7 +192,7 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `38_plant_drysoak` | Dry-пресет на канале 2: per-channel `P2DryThreshold`/дозы, dry-сессия 2-го канала не трогает статы/трекинг 1-го; префикс источника партий в `save_batch_entries` |
 | `39_flood_timecap` | Аппаратный кап времени на канал: `PulseTime1..4` из `MaxPumpRun` при init; finish-правило на общем счётчике C1 (Counter1BeforeStart+backflow+доза) |
 | `40_sweep_repeat` | Sweep стартует ровно один due-канал; repeat при занятом общем счётчике (чужое реле) откладывается; wet-завершение закрывает сессию (`_autoflood_end`, без повторного полива) |
-| `41_service_mode` | Сервисный режим (`Watering.ServiceMode`, in-memory): по умолчанию выключен; вход строго по `?enter=1` на странице `/svc` (арм таймера `ID_SERVICE_MODE_TIMEOUT` ровно 2ч, повторный заход пере-армит), выход по `?exit=1` или `service_timeout()` (таймер снимается); простое открытие `/svc` режим НЕ меняет; при активном режиме `auto_flood()`/`request_repeat()`/`request_manual()` НЕ запускают помпу; на главной — баннер «Сервисный режим: включен» (в выключенном — нет) |
+| `41_service_mode` | Сервисный режим (`Watering.ServiceMode`, in-memory): по умолчанию выключен; вход строго по `?enter=1` на странице `/svc` (арм таймера `ID_SERVICE_MODE_TIMEOUT` ровно 2ч, повторный заход пере-армит), выход по `?exit=1` или `service_timeout()` (таймер снимается); простое открытие `/svc` режим НЕ меняет; при активном режиме `auto_flood()`/`request_repeat()`/`request_manual()` НЕ запускают помпу; на главной — баннер «Сервисный режим: включен» (в выключенном — нет). Серв. прогон: `rule_power(State=1)` при `ServiceMode && !ServiceRun` → `Plant.ServiceRun=true`, снимок `Counter1BeforeStart`, `TelePeriod 10`, без `FinishRule` и `ID_ENDFASTTELE`; повторный старт игнор (снэпшот не пере-снимается); стоп (`State=0`) → `ServiceResult={num,ticks,millis}` (тики=C1-дельта), `ID_ENDFASTTELE` вооружается, команды `counter1` НЕТ; калибровка на `/svc`: `?cal=1&vol=1000` при 250 тиках → scale=4.0 и `FlowScale` в Store=4.0 (страница рендерит `4.0000` и поле «Калибровка датчика потока»), без `vol`/`vol=abc`/`vol=0` — игнор; `?set=1&scale=0.5` → scale=0.5 + persist, `abc`/`0` — игнор; арбитраж C1: при активном прогоне канала 1 `?pump=2&on` отклоняется (нет `Power2 1`); кнопки страницы: `pump=1&on` → `Power1 1` (повтор при ON — no-op), `pump=1&off` → `Power1 0`, `pump=9`/`pump=abc` — игнор; `service_exit()` при идущем прогоне шлёт `Power1 0` и стоп-rule даёт `ticks` |
 
 ## Проверка на реальном железе
 
@@ -220,6 +223,7 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 3. Клик по секции раскрывает её (подгружаются детали: датчик, сессии, кнопки уставок).
 4. Статус-иконка (💧/⏳/💦) показывает тултип-легенду по клику, страница не сворачивается/не прыгает (stopPropagation).
 5. В консоли устройства (`/cs?c2=0`) после старта нет `type_error`/`stack traceback`/`NOT registered`.
+6. Сервисный режим: `/svc` → «Включить сервисный режим»/«Выйти» работают (открытие страницы само ничего не переключает); в активном режиме на главной (`?m=1`) — баннер «Сервисный режим: включен»; кнопки ON/OFF каналов включают/выключают реле, второй канал при занятом первом отклоняется; калибровка (прогон канала → измерить объём → `vol`) обновляет scale, ручное `scale`-поле применяется; автополив во время режима не стартует; выход из режима стопает идущий сервисный прогон.
 
 ## Полезное
 

@@ -757,6 +757,7 @@ class Plant
     var AutofloodInProcess
     var Counter1ResetPostpone
     var PauseSoilMaxStat
+    var ServiceRun
     var Preset
     var DryThreshold
     var DrySoakDose
@@ -791,6 +792,7 @@ class Plant
         self.Counter1FloodDefault = 200
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
+        self.ServiceRun = false
         self.Counter1ResetPostpone = false
         self.Counter1BeforeStart = owner.FlowSensors[0].Raw
     end
@@ -820,6 +822,25 @@ class Plant
     end
 
     def water_on()
+        # Service-mode run (started from the /svc page while the mode is on):
+        # no wet-soil guard, no FinishRule, no session bookkeeping - just the
+        # fast telemetry, the shared counter snapshot and rate measuring, so a
+        # stop can report {ticks, millis} for calibration. Re-entry is ignored.
+        if self.Owner.ServiceMode && !self.ServiceRun
+            self.ServiceRun = true
+            self.Owner.ServiceResult = nil
+            self.PumpStartMillis = tasmota.millis()
+            self.Counter1BeforeStart = self.Owner.FlowSensors[0].Raw
+            tasmota.cmd("TelePeriod 10")
+            tasmota.remove_timer("ID_ENDFASTTELE")
+            self.Owner.FlowSensors[0].RateMeasuring = true
+            print("Service: pump " .. str(self.Num) .. " ON")
+            return
+        end
+        if self.ServiceRun
+            print("Service: pump " .. str(self.Num) .. " already running")
+            return
+        end
         self.PumpStartMillis = tasmota.millis()
         print("Water pump " .. str(self.Num) .. " ON")
         if self.SoilSensor.IsWet()
@@ -856,6 +877,24 @@ class Plant
             if counter != nil
                 Counter1 = counter['C1']
             end
+        end
+        if self.ServiceRun
+            # Service-mode stop: report the raw ticks and run time for the
+            # calibration math, without touching the counter (no backflow
+            # compensation) and without session bookkeeping. Fall back to the
+            # normal finish path when this was a real flood.
+            self.Owner.FlowSensors[0].RateMeasuring = false
+            self.PumpRunMillis = tasmota.millis() - self.PumpStartMillis
+            var ticks = Counter1 - self.Counter1BeforeStart
+            if ticks < 0
+                ticks = 0
+            end
+            self.ServiceRun = false
+            self.Owner.ServiceResult = {'num': self.Num, 'ticks': ticks, 'millis': self.PumpRunMillis}
+            print("Service: pump " .. str(self.Num) .. " OFF, ticks=" .. str(ticks) .. " millis=" .. str(self.PumpRunMillis))
+            tasmota.remove_timer("ID_ENDFASTTELE")
+            tasmota.set_timer(60*1000, /-> self.Owner.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
+            return
         end
         try
             self.PumpRunMillis = tasmota.millis() - self.PumpStartMillis
@@ -1143,6 +1182,7 @@ class Watering
     var FlowSensors
     var Conf_Toggle
     var ServiceMode
+    var ServiceResult
     var plants
     var PowerMap
     var _rr_idx
@@ -1253,6 +1293,7 @@ class Watering
         # Explicit entry into service mode (button on /svc). Arms a fixed 2h
         # timeout regardless of activity; re-entering simply re-arms it.
         self.ServiceMode = true
+        self.ServiceResult = nil
         tasmota.remove_timer("ID_SERVICE_MODE_TIMEOUT")
         tasmota.set_timer(2*60*60*1000, /-> self.service_timeout(), "ID_SERVICE_MODE_TIMEOUT")
         print("Service mode ON (timeout 2h)")
@@ -1264,6 +1305,15 @@ class Watering
         end
         self.ServiceMode = false
         tasmota.remove_timer("ID_SERVICE_MODE_TIMEOUT")
+        # Stop a service pump, if one is mid-run. The relay command fires the
+        # POWER{Num}#State rule -> water_off() service branch (keyed on
+        # ServiceRun, by now the mode flag is already off and the normal
+        # session logic is untouched).
+        for p: self.plants
+            if p.ServiceRun
+                tasmota.set_power(p.Num - 1, false)
+            end
+        end
         print("Service mode OFF")
     end
 
@@ -1326,6 +1376,10 @@ class Watering
         # the number of channels can be configured without code changes. It is
         # registered before load() and clamped to [1, MAX_CHANNELS].
         self.Store.register('Channels', {'default': '4', 'policy': 'immediate'})
+        # Global flow-sensor calibration (ml per counter tick). The C1 flow
+        # meter is shared by every channel, so the scale is a global key, not a
+        # per-channel P{Num} one. Calibrated from the service page.
+        self.Store.register('FlowScale', {'default': '0.1449', 'policy': 'debounced'})
         for i: 0..(MAX_CHANNELS - 1)
             self.Store.register_channel('P' + str(i + 1))
         end
@@ -1372,6 +1426,15 @@ class Watering
             self.SoilSensors.push(SoilSensor('A' + str(i + 1), self.Store, 'P' + str(i + 1)))
         end
         self.FlowSensors = [FlowSensor('C1'), FlowSensor('C2')]
+        # Apply the stored flow calibration (overrides the built-in default).
+        # Guarded: an unparsable/corrupt value falls back to the built-in scale.
+        var fscale = self.Store.get('FlowScale')
+        if fscale != nil
+            var fval = real(fscale)
+            if fval != nil && fval > 0
+                self.FlowSensors[0].setScale(fval)
+            end
+        end
         print("Sensors initialized")
 
         # Plants: per-channel state + FSM. Each channel registers its own relay
@@ -1708,32 +1771,150 @@ class Watering
     end
 
     def page_service()
-        # Standalone service page (/svc). Service-mode entry/exit is explicit
-        # (buttons, not mere page load): a tab opened and closed in the browser
-        # must not toggle anything. Channel control and flow calibration render
-        # here in the next stage.
+        # Standalone service page (/svc). Mode entry/exit is explicit (buttons,
+        # not mere page load): a tab opened and closed in the browser toggles
+        # nothing. While the mode is active: per-channel pump ON/OFF, the last
+        # service run (ticks/duration) and flow calibration (measured volume or
+        # a manual ml-per-tick coefficient).
         import webserver
         if !webserver.check_privileged_access()
             return nil
         end
-        # Act on enter/exit args before rendering so the page reflects the result.
+        # Act on args BEFORE rendering so the page reflects the result.
         if webserver.has_arg("enter")
             self.service_enter()
         end
         if webserver.has_arg("exit")
             self.service_exit()
         end
-        var state = self.ServiceMode ? "включен" : "выключен"
+        if self.ServiceMode
+            if webserver.has_arg("pump")
+                self._service_pump(webserver.arg("pump"))
+            end
+            if webserver.has_arg("cal")
+                self._service_calibrate()
+            end
+            if webserver.has_arg("set")
+                self._service_set_scale_arg()
+            end
+        end
         webserver.content_start("Сервисный режим")
         webserver.content_send_style()
-        webserver.content_send("<p>Сервисный режим: " .. state .. ".</p>")
+        var state = self.ServiceMode ? "включен" : "выключен"
+        webserver.content_send("<p>Сервисный режим: <b>" .. state .. "</b>.</p>")
         if self.ServiceMode
-            webserver.content_send("<form action='?exit=1' style='display: block;' method='get'><button>Выйти</button></form>")
+            self._service_page_on()
         else
             webserver.content_send("<form action='?enter=1' style='display: block;' method='get'><button>Включить сервисный режим</button></form>")
         end
         webserver.content_button(webserver.BUTTON_MAIN)
         webserver.content_stop()
+    end
+
+    def service_set_scale(v)
+        # Apply a new flow calibration (ml per counter tick) and persist it
+        # globally (the C1 meter is shared by every channel). Guarded by callers.
+        self.FlowSensors[0].setScale(v)
+        self.Store.set('FlowScale', str(v))
+        print("Service: flow scale set to " .. str(v))
+    end
+
+    def _service_pump(pump_arg)
+        # Per-channel pump control from the service page: issue the relay
+        # command so the POWER{Num}#State rule dispatches into the service
+        # water_on/water_off branches (keyed on the active mode / ServiceRun).
+        var n = int(pump_arg)
+        if n == nil || n < 1 || n > self.NumChannels
+            print("Service: bad pump arg '" .. str(pump_arg) .. "'")
+            return
+        end
+        var p = self.plants[n - 1]
+        if webserver.has_arg("on")
+            # Shared C1: a service run must not start while another channel is
+            # flooding (their water would leak into our tick delta).
+            var busy = self._flooding_plant()
+            if busy != nil && busy.Num != n
+                print("Service: channel " .. str(busy.Num) .. " flooding, shared C1 busy")
+                return
+            end
+            if !p.WaterIsOn()
+                tasmota.set_power(n - 1, true)
+            end
+        elif webserver.has_arg("off")
+            if p.WaterIsOn()
+                tasmota.set_power(n - 1, false)
+            end
+        end
+    end
+
+    def _service_calibrate()
+        # ?cal=1&vol=ml: derive the scale from the last service run - the user
+        # measured the pumped volume, we know how many counter ticks it took.
+        var sr = self.ServiceResult
+        if sr == nil || sr['ticks'] == nil || sr['ticks'] <= 0
+            print("Service: no usable run to calibrate (ticks=0/none)")
+            return
+        end
+        var vol = webserver.has_arg("vol") ? real(webserver.arg("vol")) : nil
+        if vol == nil || vol <= 0
+            print("Service: bad calibration volume")
+            return
+        end
+        var v = vol / real(sr['ticks'])
+        if v <= 0
+            return
+        end
+        self.service_set_scale(v)
+    end
+
+    def _service_set_scale_arg()
+        # ?set=1&scale=coef: manual ml-per-tick coefficient.
+        var sc = webserver.has_arg("scale") ? real(webserver.arg("scale")) : nil
+        if sc == nil || sc <= 0
+            print("Service: bad scale coefficient")
+            return
+        end
+        self.service_set_scale(sc)
+    end
+
+    def _service_page_on()
+        # Body of the /svc page while the mode is active. Channel controls only
+        # surface here (never on the main page), so they cannot touch a normal
+        # flood session.
+        import string
+        webserver.content_send("<fieldset><legend>Каналы</legend>")
+        for i: 0..(self.NumChannels - 1)
+            var p = self.plants[i]
+            var st = p.WaterIsOn() ? "ON" : "OFF"
+            webserver.content_send(
+                "<p>Канал " .. str(i + 1) .. " <b>" .. st .. "</b>&nbsp; " ..
+                "<form action='?pump=" .. str(i + 1) .. "&on=1' style='display: inline-block;' method='get'><button>ON</button></form> " ..
+                "<form action='?pump=" .. str(i + 1) .. "&off=1' style='display: inline-block;' method='get'><button>OFF</button></form></p>")
+        end
+        webserver.content_send("</fieldset>")
+        var sr = self.ServiceResult
+        webserver.content_send("<fieldset><legend>Калибровка датчика потока</legend>")
+        webserver.content_send("<p>Scale (мл/тик): <b>" .. string.format("%01.4f", self.FlowSensors[0].Scale) .. "</b></p>")
+        if sr != nil
+            var dur = sr['millis'] != nil ? string.format("%01.1f", sr['millis'] / 1000.0) : "0"
+            var tpm = (sr['ticks'] != nil && sr['millis'] != nil && sr['millis'] > 0) ?
+                      string.format("%01.1f", sr['ticks'] * 60000.0 / sr['millis']) : "0"
+            var uml = (sr['ticks'] != nil) ? string.format("%01.1f", self.FlowSensors[0].Scale * sr['ticks']) : "0"
+            webserver.content_send(
+                "<p>Последний прогон: канал " .. str(sr['num']) ..
+                ", " .. dur .. " с, " .. str(sr['ticks']) .. " тиков (" ..
+                tpm .. " тиков/мин, " .. uml .. " мл при текущем scale).</p>")
+        end
+        webserver.content_send(
+            "<p>Прокачайте воду (кнопки Канал ON/OFF) и укажите измеренный объём:</p>" ..
+            "<form action='?cal=1' style='display: block;' method='get'>" ..
+            "<input name='vol' type='text' placeholder='объём, мл'> " ..
+            "<button>Калибровать (мл/тик)</button></form>" ..
+            "<form action='?set=1' style='display: block;' method='get'>" ..
+            "<input name='scale' type='text' placeholder='коэффициент, мл/тик'> " ..
+            "<button>Установить коэффициент</button></form>")
+        webserver.content_send("</fieldset>")
+        webserver.content_send("<form action='?exit=1' style='display: block;' method='get'><button>Выйти</button></form>")
     end
 
 
