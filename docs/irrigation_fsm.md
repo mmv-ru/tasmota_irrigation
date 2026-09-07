@@ -168,10 +168,13 @@ flowchart TD
         ES_PAUSE -- да --> ES_SKIP["слежение за Min/Max приостановлено"]
         ES_PAUSE -- нет --> ES_MIN{"SoilMaxHymidityTemp==nil или RawEma < текущий Temp?"}
         ES_MIN -- да --> ES_NEWMIN["SoilMaxHymidityTemp=RawEma, SoilMaxHymidityTimeTemp=now (в память, не персистится)"]
-        ES_MIN -- нет --> ES_CHK{"Temp != nil и (SoilMaxHymidity==nil или Temp < SoilMaxHymidity) и RawEma > Temp+5?"}
+        ES_MIN -- нет --> ES_STALE{"RawEma < SoilMaxHymidity? (почва влажнее подтверждённого пика)"}
+        ES_STALE -- да --> ES_INVAL["инвалидация: SoilMaxHymidity=nil, SoilMaxHymidityTime=nil (in-memory) — пик завышает влажность"]
+        ES_STALE -- нет --> ES_CHK{"Temp != nil и (SoilMaxHymidity==nil или Temp < SoilMaxHymidity) и RawEma > Temp+5?"}
         ES_CHK -- да --> ES_CONF["подтверждение: SoilMaxHymidity=Temp, SoilMaxHymidityTime=TimeTemp, Store.save_batch_entries(p.max_batch()) — один save"]
         ES_SKIP --> ES_DONE["конец тика"]
         ES_NEWMIN --> ES_DONE
+        ES_INVAL --> ES_DONE
         ES_CONF --> ES_DONE
         ES_CHK -- нет --> ES_DONE
     end
@@ -238,7 +241,7 @@ flowchart TD
 | `PlannedFlood` | запланированный объём дозы (мл) для текущего запуска: `Preset.dose()`; выставляется внутри `start_flood()` (пока `RawEma > RawWet`) |
 | `FinishRule` | активное правило `COUNTER#C1>=...` канала; снимается при остановке помпы |
 | `WaterIsOn()` | Читает `tasmota.get_power(Num-1)` напрямую (реле канала); источник правды — железо, кэша нет |
-| `SoilMaxHymidity` | последний **подтверждённый** минимум влажности (non-nil = подтверждено); persist `P{Num}SoilMaxHymidity` — после ребута восстанавливается и сразу эмитится в телеметрию |
+| `SoilMaxHymidity` | последний **подтверждённый** минимум влажности (non-nil = подтверждено); persist `P{Num}SoilMaxHymidity` — после ребута восстанавливается и сразу эмитится в телеметрию; инвалидизируется (nil, in-memory) в `every_second`, когда `RawEma < SoilMaxHymidity` при `!PauseSoilMaxStat && _stats_enabled()` — почва влажнее пика |
 | `SoilMaxHymidityTemp` | текущий трекаемый минимум (в память, не персистится); подтверждается после роста `RawEma > Temp+5` на новом минимуме и переносится в `SoilMaxHymidity` |
 
 ## Ключевой цикл самокоррекции (одного канала, с арбитражем)
@@ -261,4 +264,4 @@ timer_soil_transition_after_flooded →
 
 - Команда `DrySoak` (регистрируется в `init_sensors()`, снимается в `deinit()`): пусто/`status` → строка `preset=…, DryThreshold=…, dose=…, since=…`; `start` → принудительная dry-замочка на канале 1 (пресет `dry`, доза `SoakStartDose`, через `request_manual`), иначе `resp_cmnd_error()`.
 - Веб: настройки канала — кнопка `⚙` (label `Настройки порогов`) в группе `Уставки` detail канала, JS-попап, суффиксные арги `m_drythr_N`/`m_soakdose_N` (+ `m_soildry_N`/`m_soilwet_N` для порогов; bare-арги = канал 1, legacy), пишутся в `P{Num}DryThreshold`/`P{Num}SoakStartDose` через `Store.set`, debounced; ряды `web_sensor()`: `Flooding in process`, `Dry soak` (`none` / `soak, dose N`), `Dry threshold`.
-- Сухая замочка НЕ пишет Prev*/estimate-статы (`WriteStats=false`): `save_batch_entries` в `start_session` и трекинг `SoilMaxHymidity` в `every_second` пропускаются (`_stats_enabled()`).
+- Сухая замочка НЕ пишет Prev*/estimate-статы (`WriteStats=false`): `save_batch_entries` в `start_session`, трекинг `SoilMaxHymidity` и его инвалидация в `every_second` пропускаются (`_stats_enabled()`).

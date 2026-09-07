@@ -1506,6 +1506,15 @@ class Watering
                     p.SoilMaxHymidityTemp = p.SoilSensor.RawEma
                     p.SoilMaxHymidityTimeTemp = tasmota.rtc()['local']
                 end
+                # Confirmed peak is stale once the soil reads wetter than it
+                # (RawEma below the last confirmed minimum): drop it so the
+                # stored value never overstates the current humidity. Gated by
+                # the same conditions as the tracker, so the pump's own
+                # absorption window and the dry-soak preset never touch it.
+                if p.SoilMaxHymidity != nil && p.SoilSensor.RawEma < p.SoilMaxHymidity
+                    p.SoilMaxHymidity = nil
+                    p.SoilMaxHymidityTime = nil
+                end
             end
             if p.SoilMaxHymidityTemp != nil && (p.SoilMaxHymidity == nil || p.SoilMaxHymidityTemp < p.SoilMaxHymidity) && p.SoilSensor.RawEma > p.SoilMaxHymidityTemp + 5
                 print("SoilMaxHymidityConfirmed")

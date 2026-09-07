@@ -80,4 +80,44 @@ P1.SoilSensor.RawEma = lower + 10
 wp1.every_second()
 assert_eq(P1.SoilMaxHymidity, lower, "lower minimum confirmed after +5 rise")
 
+section("invalidates_stale_peak_when_wetter")
+
+# soil is wetter than the last confirmed peak (RawEma below it): the stored
+# peak would overstate the current humidity, so it is dropped (UI/telemetry
+# stop lying); the running minimum takes over until the +5 rise confirms a new
+# (lower = wetter) peak.
+P1.PauseSoilMaxStat = false
+P1.SoilMaxHymidity = 805
+P1.SoilMaxHymidityTime = SIM['rtc_local']
+P1.SoilMaxHymidityTemp = nil
+P1.SoilMaxHymidityTimeTemp = nil
+SIM['sensors']['ANALOG']['A1'] = 790
+P1.SoilSensor.RawEma = 790   # wetter than 805, stable against the same mock
+wp1.every_second()
+assert_eq(P1.SoilMaxHymidity, nil, "stale peak dropped when soil got wetter")
+assert_eq(P1.SoilMaxHymidityTime, nil, "stale peak timestamp dropped too")
+var inv_low = P1.SoilMaxHymidityTemp
+assert_true(inv_low != nil && int(inv_low) == 790, "running minimum captured after invalidation")
+assert_true(P1.SoilMaxHymidity == nil, "no confirmation yet while at the trough")
+
+# soil dries again -> the new (lower) peak is confirmed by the usual +5 path
+SIM['sensors']['ANALOG']['A1'] = 900
+P1.SoilSensor.RawEma = 806   # above inv_low+5; EMA stays up after one tick
+wp1.every_second()
+assert_eq(P1.SoilMaxHymidity, inv_low, "new lower peak confirmed after invalidation + rise")
+
+section("no_invalidate_while_paused")
+
+# post-flood absorption (PauseSoilMaxStat) must not drop the peak: the pump's
+# own wetting drives RawEma below it, but that is not "soil got wetter".
+SIM['sensors']['ANALOG']['A1'] = 790
+P1.SoilSensor.RawEma = 790
+P1.SoilMaxHymidity = 805
+P1.SoilMaxHymidityTime = SIM['rtc_local']
+P1.SoilMaxHymidityTemp = inv_low
+P1.SoilMaxHymidityTimeTemp = SIM['rtc_local']
+P1.PauseSoilMaxStat = true
+wp1.every_second()
+assert_eq(P1.SoilMaxHymidity, 805, "peak kept while paused (absorption window)")
+
 # ---------------- finished ----------------
