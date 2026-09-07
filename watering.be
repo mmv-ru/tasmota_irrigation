@@ -1141,7 +1141,6 @@ end
 class Watering
     var SoilSensors
     var FlowSensors
-    var FlowSensorCalibration
     var Conf_Toggle
     var plants
     var PowerMap
@@ -1328,7 +1327,6 @@ class Watering
         end
         print("Sensors loaded from Json string")
 
-        self.FlowSensorCalibration = false
         self.Conf_Toggle = 0
 
         print("Init sensors")
@@ -1526,7 +1524,7 @@ class Watering
     end
 
     def web_add_main_button()
-        webserver.content_send("<p></p><button " .. wonclick('la("&m_toggle_flowcalibration=1");') .. ">Flow Sensor Calibration</button>")
+        webserver.content_send("<p></p><a class='wcbtn' href='svc'>Сервисный режим</a>")
         # Section design (variant B): band headers with badges and a status
         # Styled via an injected <style> block (la() only rewrites {s}/{m}/{e},
         # everything else lands in #l1 verbatim). CSS rules are kept as a list
@@ -1663,6 +1661,30 @@ class Watering
         # per-channel detail popup (see web_soil_detail + _wdSettingsOpen).
     end
 
+    def web_add_handler()
+        # Called by Tasmota once the web server is up: register the /svc route
+        # bound to this instance (a closure captures self). The main-page button
+        # in web_add_main_button() navigates here.
+        import webserver
+        webserver.on("/svc", / -> self.page_service(), webserver.HTTP_GET)
+        print("Watering: /svc page registered")
+    end
+
+    def page_service()
+        # Standalone service page (/svc). Stage 1: scaffold only (title + back
+        # button); service-mode enter/exit, channel control and flow calibration
+        # render here in later stages.
+        import webserver
+        if !webserver.check_privileged_access()
+            return nil
+        end
+        webserver.content_start("Сервисный режим")
+        webserver.content_send_style()
+        webserver.content_send("<p>Сервисный режим: управление каналами и калибровка датчика потока.</p>")
+        webserver.content_button(webserver.BUTTON_MAIN)
+        webserver.content_stop()
+    end
+
 
 
 
@@ -1783,15 +1805,6 @@ class Watering
         var msg
 
         try
-            if webserver.has_arg("m_toggle_flowcalibration")
-              self.FlowSensorCalibration = ! self.FlowSensorCalibration
-              print("FlowSensor Calibration mode" .. self.FlowSensorCalibration)
-            end
-        except .. as e
-            print("web_sensor: flowcal toggle failed " .. e)
-        end
-
-        try
             if webserver.has_arg("m_reset_water_counter_1")
               if self.plants[0].AutofloodInProcess
                 self.plants[0].Counter1ResetPostpone = true
@@ -1891,18 +1904,11 @@ class Watering
             print("web_sensor: flow1 row failed " .. e)
         end
 
-        # Common detail rows (expanded Common section only): flow calibration mode
-        # and the reset-water-counter action (the main-page button was moved here).
-        # Session/pump state is per-channel and lives in each soil section, not here.
+        # Common detail rows (expanded Common section only): the reset-water-
+        # counter action (the main-page button was moved here). The service-mode
+        # entry lives on its own /svc page via web_add_main_button().
+        # Session/pump state is per-channel and lives in each soil section.
         if exp_flow
-            try
-                msg = string.format(
-                          wrow("FlowSensor Calibration mode", "%s"),
-                          self.FlowSensorCalibration)
-                tasmota.web_send_decimal(msg)
-            except .. as e
-                print("web_sensor: common detail rows failed " .. e)
-            end
             try
                 msg = string.format(
                           wgrp("Сброс") ..

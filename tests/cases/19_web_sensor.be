@@ -70,7 +70,7 @@ for m: SIM['websend'] j4 = j4 + m end
 assert_true(string.find(j4, "Common") >= 0, "Common section label")
 assert_true(string.find(j4, "pulse/s") >= 0, "flow detail row present when me=c")
 assert_true(string.find(j4, "ml/min") >= 0, "flow rate row present when me=c")
-assert_true(string.find(j4, "FlowSensor Calibration mode") >= 0, "calibration row under Common when me=c")
+assert_true(string.find(j4, "FlowSensor Calibration mode") < 0, "calibration row removed from Common detail (service page owns it)")
 assert_true(string.find(j4, "Water counter") >= 0, "reset counter row under Common when me=c")
 assert_true(string.find(j4, "confirm(") >= 0, "reset counter row carries a JS confirm popup")
 assert_true(string.find(j4, "m_reset_water_counter_1") >= 0, "reset counter row posts the reset arg")
@@ -206,5 +206,43 @@ for m: SIM['websend'] j7 = j7 + m end
 assert_eq(string.split(j7, "Канал 1<span").size(), 2, "channel 1 header present")
 assert_eq(string.split(j7, "Канал 4<span").size(), 2, "channel 4 header present (NumChannels=4)")
 assert_true(string.find(j7, "Канал 5<span") < 0, "no header beyond NumChannels")
+
+section("page_service_renders")
+
+# /svc page renders a scaffold: title, style, body, back button, close.
+SIM['webhtml'] = list()
+var okr = true
+try
+    wp1.page_service()
+except .. as e
+    okr = false
+    print("page_service failed " .. e)
+end
+assert_true(okr, "page_service runs without exception")
+var ps = ""
+for m: SIM['webhtml'] ps = ps .. m end
+assert_true(string.find(ps, "[content_start ") >= 0, "page started (content_start)")
+assert_true(string.find(ps, "Сервисный режим") >= 0, "page title present")
+assert_true(string.find(ps, "[content_send_style]") >= 0, "Tasmota styles injected")
+assert_true(string.find(ps, "калибровка") >= 0, "page body text present")
+assert_true(string.find(ps, "[content_button MAIN]") >= 0, "back-to-main button emitted")
+assert_true(string.find(ps, "[content_stop]") >= 0, "page closed (content_stop)")
+
+section("page_service_guard")
+
+# without privileged access (stub switched off) page_service returns early and
+# emits nothing
+var g = webserver.check_privileged_access
+webserver.check_privileged_access = def () return false end
+SIM['webhtml'] = list()
+var gr = true
+try
+    wp1.page_service()
+except .. as e
+    gr = false
+end
+assert_true(gr, "guarded page_service returns cleanly")
+assert_true(SIM['webhtml'].size() == 0, "no output when access denied")
+webserver.check_privileged_access = g
 
 # ---------------- finished ----------------
