@@ -9,8 +9,8 @@ wp1.web_add_main_button()
 var joined = ""
 for m: SIM['webhtml'] joined = joined .. m end
 assert_true(string.find(joined, "Flow Sensor Calibration") < 0, "placeholder calibration button removed")
-assert_true(string.find(joined, "Сервисный режим") >= 0, "service-mode navigation link present")
-assert_true(string.find(joined, "href='svc'") >= 0, "service link navigates to the /svc page")
+assert_true(string.find(joined, "Сервисный режим") >= 0, "service-mode navigation button present")
+assert_true(string.find(joined, "location.href=\"svc\"") >= 0, "service button navigates to the /svc page")
 assert_true(string.find(joined, "Reset water counter") < 0, "reset counter button moved off the main page into Common detail")
 assert_true(string.find(joined, "Toggle Conf") < 0, "dead toggle-conf button removed")
 # the per-channel settings popup JS lives in the main-button inject

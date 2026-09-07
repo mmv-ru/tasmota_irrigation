@@ -12,32 +12,40 @@ wp1.page_service()
 var pinit = ""
 for m: SIM['webhtml'] pinit = pinit + m end
 assert_true(string.find(pinit, "выключен") >= 0, "page reports the mode as off")
-assert_true(string.find(pinit, "?enter=1") >= 0, "enable button present while off")
+assert_true(string.find(pinit, "name='start' value='1'") >= 0, "enable button present while off")
+assert_true(string.find(pinit, "action='?") < 0, "no command args in form actions (GET submit discards them)")
+assert_true(string.find(pinit, "<form action='svc'") >= 0, "off-page form posts back to /svc")
 assert_true(SIM['timers'].find("ID_SERVICE_MODE_TIMEOUT") == nil, "no timeout timer while off")
 
 section("service_mode_enter")
 
-# ?enter=1 turns the mode on and arms the fixed 2h timeout
-webserver.has_arg = def (name) return name == 'enter' end
+# ?start=1 turns the mode on and arms the fixed 2h timeout
+webserver.has_arg = def (name) return name == 'start' end
 SIM['timers'] = map()
 SIM['webhtml'] = list()
 wp1.page_service()
-assert_true(wp1.ServiceMode, "service mode enabled by ?enter=1")
+assert_true(wp1.ServiceMode, "service mode enabled by ?start=1")
 assert_true(SIM['timers'].find("ID_SERVICE_MODE_TIMEOUT") != nil, "2h timeout timer armed")
 assert_eq(SIM['timers']["ID_SERVICE_MODE_TIMEOUT"]['delay'], 2*60*60*1000, "timeout is exactly 2 hours")
 var penter = ""
 for m: SIM['webhtml'] penter = penter + m end
 assert_true(string.find(penter, "включен") >= 0, "page reports the mode as on")
 assert_true(string.find(penter, "Выйти") >= 0, "exit button offered while on")
+assert_true(string.find(penter, "action='?") < 0, "no command args in form actions while on")
+assert_true(string.find(penter, "<form action='svc'") >= 0, "on-page forms post back to /svc")
+assert_true(string.find(penter, "name='pump' value='1'") >= 0 && string.find(penter, "name='on' value='1'") >= 0, "channel ON posts pump/on as hidden inputs")
+assert_true(string.find(penter, "name='pump' value='2'") >= 0 && string.find(penter, "name='off' value='1'") >= 0, "channel OFF posts pump/off as hidden inputs")
+assert_true(string.find(penter, "name='cal' value='1'") >= 0 && string.find(penter, "name='set' value='1'") >= 0, "calibration commands carry over as hidden inputs")
+assert_true(string.find(penter, "name='exit' value='1'") >= 0, "exit posts as hidden input")
 
 section("service_mode_enter_rearms")
 
-# a repeated enter re-arms the timer from scratch (fresh 2h window)
+# a repeated start re-arms the timer from scratch (fresh 2h window)
 SIM['timers'] = map()
-webserver.has_arg = def (name) return name == 'enter' end
+webserver.has_arg = def (name) return name == 'start' end
 wp1.page_service()
-assert_true(SIM['timers'].find("ID_SERVICE_MODE_TIMEOUT") != nil, "timeout re-armed by repeated enter")
-assert_eq(SIM['timers']["ID_SERVICE_MODE_TIMEOUT"]['delay'], 2*60*60*1000, "re-enter starts a fresh 2h window")
+assert_true(SIM['timers'].find("ID_SERVICE_MODE_TIMEOUT") != nil, "timeout armed again by a repeated start")
+assert_eq(SIM['timers']["ID_SERVICE_MODE_TIMEOUT"]['delay'], 2*60*60*1000, "fresh start re-arms a fresh 2h window")
 
 section("service_mode_blocks_auto_flood")
 
@@ -73,7 +81,8 @@ assert_true(SIM['timers'].find("ID_SERVICE_MODE_TIMEOUT") == nil, "timeout timer
 var pexit = ""
 for m: SIM['webhtml'] pexit = pexit + m end
 assert_true(string.find(pexit, "выключен") >= 0, "page reports the mode as off after exit")
-assert_true(string.find(pexit, "?enter=1") >= 0, "enable button back after exit")
+assert_true(string.find(pexit, "name='start' value='1'") >= 0, "enable button back after exit")
+assert_true(string.find(pexit, "action='?") < 0, "no command args in form actions after exit")
 
 section("service_mode_banner_off_when_idle")
 
@@ -95,7 +104,7 @@ assert_true(SIM['timers'].find("ID_SERVICE_MODE_TIMEOUT") == nil, "timeout remov
 
 section("service_mode_page_plain_load_keeps_state")
 
-# merely opening /svc without enter/exit must not toggle the mode
+# merely opening /svc without start/exit must not toggle the mode
 var was = wp1.ServiceMode
 webserver.has_arg = def (name) return false end
 wp1.page_service()

@@ -1624,7 +1624,7 @@ class Watering
     end
 
     def web_add_main_button()
-        webserver.content_send("<p></p><a class='wcbtn' href='svc'>Сервисный режим</a>")
+        webserver.content_send("<p></p><button onclick='location.href=\"svc\";'>Сервисный режим</button>")
         # Section design (variant B): band headers with badges and a status
         # Styled via an injected <style> block (la() only rewrites {s}/{m}/{e},
         # everything else lands in #l1 verbatim). CSS rules are kept as a list
@@ -1781,7 +1781,11 @@ class Watering
             return nil
         end
         # Act on args BEFORE rendering so the page reflects the result.
-        if webserver.has_arg("enter")
+        # NB: the enable command is 'start' (NOT 'enter'): some browsers/networks
+        # fail to load URLs whose query contains the literal substring 'enter=1'
+        # (observed on this setup), so a bare ?input name='enter' value='1' form
+        # would land on a browser error page instead of enabling the mode.
+        if webserver.has_arg("start")
             self.service_enter()
         end
         if webserver.has_arg("exit")
@@ -1805,7 +1809,7 @@ class Watering
         if self.ServiceMode
             self._service_page_on()
         else
-            webserver.content_send("<form action='?enter=1' style='display: block;' method='get'><button>Включить сервисный режим</button></form>")
+            webserver.content_send("<form action='svc' style='display: block;' method='get'><input type='hidden' name='start' value='1'><button>Включить сервисный режим</button></form>")
         end
         webserver.content_button(webserver.BUTTON_MAIN)
         webserver.content_stop()
@@ -1888,8 +1892,8 @@ class Watering
             var st = p.WaterIsOn() ? "ON" : "OFF"
             webserver.content_send(
                 "<p>Канал " .. str(i + 1) .. " <b>" .. st .. "</b>&nbsp; " ..
-                "<form action='?pump=" .. str(i + 1) .. "&on=1' style='display: inline-block;' method='get'><button>ON</button></form> " ..
-                "<form action='?pump=" .. str(i + 1) .. "&off=1' style='display: inline-block;' method='get'><button>OFF</button></form></p>")
+                "<form action='svc' style='display: inline-block;' method='get'><input type='hidden' name='pump' value='" .. str(i + 1) .. "'><input type='hidden' name='on' value='1'><button>ON</button></form> " ..
+                "<form action='svc' style='display: inline-block;' method='get'><input type='hidden' name='pump' value='" .. str(i + 1) .. "'><input type='hidden' name='off' value='1'><button>OFF</button></form></p>")
         end
         webserver.content_send("</fieldset>")
         var sr = self.ServiceResult
@@ -1907,14 +1911,16 @@ class Watering
         end
         webserver.content_send(
             "<p>Прокачайте воду (кнопки Канал ON/OFF) и укажите измеренный объём:</p>" ..
-            "<form action='?cal=1' style='display: block;' method='get'>" ..
+            "<form action='svc' style='display: block;' method='get'>" ..
+            "<input type='hidden' name='cal' value='1'>" ..
             "<input name='vol' type='text' placeholder='объём, мл'> " ..
             "<button>Калибровать (мл/тик)</button></form>" ..
-            "<form action='?set=1' style='display: block;' method='get'>" ..
+            "<form action='svc' style='display: block;' method='get'>" ..
+            "<input type='hidden' name='set' value='1'>" ..
             "<input name='scale' type='text' placeholder='коэффициент, мл/тик'> " ..
             "<button>Установить коэффициент</button></form>")
         webserver.content_send("</fieldset>")
-        webserver.content_send("<form action='?exit=1' style='display: block;' method='get'><button>Выйти</button></form>")
+        webserver.content_send("<form action='svc' style='display: block;' method='get'><input type='hidden' name='exit' value='1'><button>Выйти</button></form>")
     end
 
 
