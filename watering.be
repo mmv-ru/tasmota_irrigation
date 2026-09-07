@@ -749,6 +749,7 @@ class Plant
     var SoilMaxHymidityTimeTemp
     var LastFloodTime
     var LastFloodVol
+    var LastFlowRate
     var SoilHPreFlood
     var PrevSoilMaxHymidity
     var PrevSoilHPreFlood
@@ -900,6 +901,13 @@ class Plant
         var flood_delay = 2*60*60*1000
         self.LastFloodTime = tasmota.rtc()['local']
         self.LastFloodVol += CounterDelta
+        # Average flow (ml/min) of this channel's last fill: dose volume over
+        # its own pump-on duration. In-memory (not persisted).
+        if self.PumpRunMillis != nil && self.PumpRunMillis > 0
+            self.LastFlowRate = (CounterDelta * 60000.0) / self.PumpRunMillis
+        else
+            self.LastFlowRate = nil
+        end
         if self.Preset != nil && self.Preset.Type == 'dry'
             # Dry soak cadence: fixed interval + daily volume tracking.
             flood_delay = int(self.Store.get(self.Prefix .. 'SoakInterval')) * 1000
@@ -1744,6 +1752,16 @@ class Watering
                           k, str(introspect.get(plant, k)))
             end
             tasmota.web_send_decimal(msg)
+            # Last fill per channel: date + average flow rate (in-memory).
+            # Emitted only when a fill has been recorded (LastFloodTime set).
+            if plant.LastFloodTime != nil
+                msg = wgrp("Последний полив")
+                msg += string.format(wrow("Last flood time", "%s"), self._TimeStr(plant.LastFloodTime))
+                if plant.LastFlowRate != nil
+                    msg += string.format(wrow("Last flow rate", "%01.1f мл/мин"), plant.LastFlowRate)
+                end
+                tasmota.web_send_decimal(msg)
+            end
         except .. as e
             print("web_sensor: detail rows failed " .. e)
         end
@@ -1855,18 +1873,6 @@ class Watering
                 except .. as e
                     print("web_sensor: detail rows failed " .. e)
                 end
-            end
-        end
-
-        if self.plants[0].LastFloodTime != nil
-            try
-                msg = string.format(
-                          wgrp("Последний полив") .. wrow("Last flood time", "%s") .. wrow("Last flood", "%01.1f ml"),
-                          self._TimeStr(self.plants[0].LastFloodTime),
-                          self.FlowSensors[0].Raw2Flow(self.plants[0].LastFloodVol))
-                tasmota.web_send_decimal(msg)
-            except .. as e
-                print("web_sensor: last flood row failed " .. e)
             end
         end
 

@@ -106,7 +106,7 @@ flowchart TD
         ROFF_COMP -- нет --> ROFF_ZERO["counter1 preset (С1BeforeStart); CounterDelta = 0"]
         ROFF_BCK --> ROFF_VOL{"CounterDelta > 0 (вода реально прошла)?"}
         ROFF_ZERO --> ROFF_VOL
-        ROFF_VOL -- да --> ROFF_REC["_record_flood(CounterDelta): LastFloodTime=now, LastFloodVol += CounterDelta"]
+        ROFF_VOL -- да --> ROFF_REC["_record_flood(CounterDelta): LastFloodTime=now, LastFloodVol += CounterDelta, LastFlowRate = доза/длительность"]
         ROFF_REC --> ROFF_DRY{"Preset.Type == 'dry'?"}
         ROFF_DRY -- да --> ROFF_DRYT["DryDailyTicks.push({ms, ticks}) — накопление для DailyCap; flood_delay = SoakInterval"]
         ROFF_DRY -- нет --> ROFF_CAP{"LastFloodVol > MaxFlood?"}
@@ -208,7 +208,7 @@ flowchart TD
 | `water_on()` | Старт: защита от мокрой почвы, `FinishRule = COUNTER#C1 >= ...` (общий счётчик), быстрая телеметрия, RateMeasuring |
 | `water_off()` | Стоп: читает Counter1, `_compensate_backflow()`, затем `_record_flood()` (вода прошла) или `_end_session_no_water()` (нет воды), таймер возврата TelePeriod |
 | `_compensate_backflow(Counter1)` | Вычитает backflow из счётчика (preset `counter1`) и из дельты, возвращает нетто-объём |
-| `_record_flood(CounterDelta)` | Фиксирует дозу: `LastFloodVol += delta`, при dry — пушит `{ms, ticks}` в `DryDailyTicks` (каденс SoakInterval); при normal и `LastFloodVol > MaxFlood` — `remove_timer` + `_autoflood_end()` (сессия закрыта капом объёма, таймер проверки не ставится); иначе таймер проверки 2ч, пере-арм `ID_SOILTRANSITION_AFTERFLOOD_P{Num}` |
+| `_record_flood(CounterDelta)` | Фиксирует дозу: `LastFloodVol += delta`, `LastFloodTime=now`, `LastFlowRate = CounterDelta*60000/PumpRunMillis` (in-memory avg ml/min, guard на `PumpRunMillis` set/>0, иначе nil); при dry — пушит `{ms, ticks}` в `DryDailyTicks` (каденс SoakInterval); при normal и `LastFloodVol > MaxFlood` — `remove_timer` + `_autoflood_end()` (сессия закрыта капом объёма, таймер проверки не ставится); иначе таймер проверки 2ч, пере-арм `ID_SOILTRANSITION_AFTERFLOOD_P{Num}` |
 | `_end_session_no_water()` | Помпа работала без воды: закрывает сессию без таймера проверки почвы |
 | `rule_flooded()` | Триггер лимита: счётчик достиг порога → `Power{Num} 0` |
 | `timer_soil_transition_after_flooded()` | Диспетчер оценки результата: при `Preset != nil` → `Preset.evaluate()`, иначе классика `_escalate_evaluate()`; 'repeat' → `Owner.request_repeat(self)` |

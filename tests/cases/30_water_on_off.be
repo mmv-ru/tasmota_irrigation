@@ -41,12 +41,14 @@ section("water_off_records_flood")
 
 # counter advanced -> water_off compensates and records the flood
 SIM['sensors']['COUNTER']['C1'] = 250
+SIM['millis'] = 1000 + 60000
 SIM['cmds'] = list()
 tasmota.set_power(0, false)
 wp1.plants[0].water_off()
 assert_true(!wp1.plants[0].WaterIsOn(), "pump off")
 assert_true(cmds_include("counter1 250"), "counter preset via water_off")
 assert_true(real(wp1.plants[0].LastFloodVol) == 250, "flood volume accumulated")
+assert_eq(wp1.plants[0].LastFlowRate, 250.0, "avg flow from volume/pump-run (250ml/min)")
 assert_true(wp1.plants[0].FinishRule == nil, "finish rule cleared")
 assert_true(SIM['timers'].find("ID_SOILTRANSITION_AFTERFLOOD_P1") != nil, "soil transition timer armed")
 assert_true(SIM['timers'].find("ID_ENDFASTTELE") != nil, "fast tele end timer armed")

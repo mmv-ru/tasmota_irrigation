@@ -6,6 +6,8 @@ section("web_sensor_no_args")
 
 var P0 = wp1.plants[0]
 var P1 = wp1.plants[1]
+var FS0 = wp1.FlowSensors[0]
+var SS3 = wp1.SoilSensors[3]
 SIM['websend'] = list()
 P0.SoilMaxHymidity = nil
 P0.LastFloodTime = nil
@@ -60,7 +62,7 @@ section("web_sensor_flow_expand")
 # Common (flow) section expands with me=c (c is the Common flag char)
 webserver.has_arg = def (name) return name == 'me' end
 webserver.arg = def (name, dflt) return name == 'me' ? 'c' : dflt end
-wp1.FlowSensors[0].RawRate = 5
+FS0.RawRate = 5
 SIM['websend'] = []
 wp1.web_sensor()
 var j4 = ""
@@ -96,8 +98,8 @@ section("web_sensor_unconnected_channel")
 # an unconnected channel (RawEma/Raw nil, no Update ever) must still render its
 # header + expanded detail with "nil" placeholders instead of crashing the whole
 # section (which used to drop the header and make the accordion un-collapsible)
-wp1.SoilSensors[3].Raw = nil
-wp1.SoilSensors[3].RawEma = nil
+SS3.Raw = nil
+SS3.RawEma = nil
 webserver.has_arg = def (name) return name == 'me' end
 webserver.arg = def (name, dflt) return name == 'me' ? '4' : dflt end
 SIM['websend'] = []
@@ -150,7 +152,7 @@ section("web_sensor_pump_run")
 # pump running on channel 2 (me=2): header icon is the run state and the pump
 # row reads run with the live flow rate (ml/min) while the pump is on
 tasmota.set_power(1, true)
-wp1.FlowSensors[0].RawRate = 10
+FS0.RawRate = 10
 webserver.has_arg = def (name) return name == 'me' end
 webserver.arg = def (name, dflt) return name == 'me' ? '2' : dflt end
 SIM['websend'] = []
@@ -161,7 +163,36 @@ assert_true(string.find(j8, "class='st run'") >= 0, "header icon is the run stat
 assert_true(string.find(j8, "Вода</th><td>run") >= 0, "pump row reads run when relay on")
 assert_true(string.find(j8, "ml/min") >= 0, "live flow rate shown while pump runs")
 tasmota.set_power(1, false)
-wp1.FlowSensors[0].RawRate = nil
+FS0.RawRate = nil
+
+section("web_sensor_last_flood_detail")
+
+# Last fill (date + average flow rate) is per-channel: with me=2 the group
+# appears under expanded channel 2, driven by that channel's own fields. The
+# old standalone "Последний полив" group at the page bottom is gone.
+P1.LastFloodTime = SIM['rtc_local']
+P1.LastFlowRate = 25.5
+webserver.has_arg = def (name) return name == 'me' end
+webserver.arg = def (name, dflt) return name == 'me' ? '2' : dflt end
+SIM['websend'] = []
+wp1.web_sensor()
+var jl = ""
+for m: SIM['websend'] jl = jl + m end
+assert_true(string.find(jl, "Последний полив</td>") >= 0, "last-flood group under expanded channel 2")
+assert_true(string.find(jl, "Last flood time") >= 0, "last flood time row present")
+assert_true(string.find(jl, "Last flow rate") >= 0, "last flow rate row present")
+assert_true(string.find(jl, "25.5") >= 0, "last flow rate value shown (ml/min)")
+
+section("web_sensor_last_flood_hidden_on_first_run")
+
+# No last-flood group when the channel never flooded (LastFloodTime nil)
+P1.LastFloodTime = nil
+P1.LastFlowRate = nil
+SIM['websend'] = []
+wp1.web_sensor()
+var jln = ""
+for m: SIM['websend'] jln = jln + m end
+assert_true(string.find(jln, "Последний полив</td>") < 0, "no last-flood group before any fill")
 
 section("web_sensor_channels_header_count")
 

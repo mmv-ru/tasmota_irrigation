@@ -36,12 +36,14 @@ section("record_flood_accumulates_and_arms_timer")
 
 SIM['cmds'] = list()
 wp1.plants[0].LastFloodVol = 0
+wp1.plants[0].PumpRunMillis = 60000
 wp1.plants[0]._record_flood(250)
 assert_eq(wp1.plants[0].LastFloodVol, 250, "volume accumulated")
 assert_true(SIM['timers'].find("ID_SOILTRANSITION_AFTERFLOOD_P1") != nil, "soil transition timer armed")
 var st = SIM['timers']['ID_SOILTRANSITION_AFTERFLOOD_P1']
 assert_eq(st['delay'], 2*60*60*1000, "2h default flood interval")
 assert_eq(wp1.plants[0].LastFloodTime, SIM['rtc_local'], "last flood time recorded")
+assert_eq(wp1.plants[0].LastFlowRate, 250.0, "avg flow = dose over 1min run (250ml/min)")
 
 section("record_flood_replaces_pending_timer")
 
