@@ -224,7 +224,7 @@ for m: SIM['webhtml'] ps = ps .. m end
 assert_true(string.find(ps, "[content_start ") >= 0, "page started (content_start)")
 assert_true(string.find(ps, "Сервисный режим") >= 0, "page title present")
 assert_true(string.find(ps, "[content_send_style]") >= 0, "Tasmota styles injected")
-assert_true(string.find(ps, "калибровка") >= 0, "page body text present")
+assert_true(string.find(ps, "Сервисный режим:") >= 0, "page body shows the mode state")
 assert_true(string.find(ps, "[content_button MAIN]") >= 0, "back-to-main button emitted")
 assert_true(string.find(ps, "[content_stop]") >= 0, "page closed (content_stop)")
 

@@ -189,6 +189,7 @@ assert_true(cmds_include("TelePeriod 10"), "быстрая телеметрия 
 | `38_plant_drysoak` | Dry-пресет на канале 2: per-channel `P2DryThreshold`/дозы, dry-сессия 2-го канала не трогает статы/трекинг 1-го; префикс источника партий в `save_batch_entries` |
 | `39_flood_timecap` | Аппаратный кап времени на канал: `PulseTime1..4` из `MaxPumpRun` при init; finish-правило на общем счётчике C1 (Counter1BeforeStart+backflow+доза) |
 | `40_sweep_repeat` | Sweep стартует ровно один due-канал; repeat при занятом общем счётчике (чужое реле) откладывается; wet-завершение закрывает сессию (`_autoflood_end`, без повторного полива) |
+| `41_service_mode` | Сервисный режим (`Watering.ServiceMode`, in-memory): по умолчанию выключен; вход строго по `?enter=1` на странице `/svc` (арм таймера `ID_SERVICE_MODE_TIMEOUT` ровно 2ч, повторный заход пере-армит), выход по `?exit=1` или `service_timeout()` (таймер снимается); простое открытие `/svc` режим НЕ меняет; при активном режиме `auto_flood()`/`request_repeat()`/`request_manual()` НЕ запускают помпу; на главной — баннер «Сервисный режим: включен» (в выключенном — нет) |
 
 ## Проверка на реальном железе
 

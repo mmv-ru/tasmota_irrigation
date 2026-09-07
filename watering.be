@@ -1142,6 +1142,7 @@ class Watering
     var SoilSensors
     var FlowSensors
     var Conf_Toggle
+    var ServiceMode
     var plants
     var PowerMap
     var _rr_idx
@@ -1195,6 +1196,10 @@ class Watering
         # Repeat fill after a channel's cooldown. Arbitrated: if another channel
         # is currently pumping (shared C1), defer via a short retry timer instead
         # of a queue; due() is re-checked on every sweep anyway.
+        if self.ServiceMode
+            print("Service mode: repeat blocked")
+            return
+        end
         if self._flooding_plant() != nil
             print("Autoflood: repeat blocked (another channel flooding), retry in 60s")
             plant._rearm_soil_check(60*1000)
@@ -1204,6 +1209,10 @@ class Watering
     end
 
     def request_manual(plant)
+        if self.ServiceMode
+            print("Service mode: manual flood blocked")
+            return
+        end
         if self._flooding_plant() != nil
             print("Watering: manual flood blocked, another channel flooding")
             return
@@ -1216,6 +1225,10 @@ class Watering
         # channel is actively pumping. Called by the hourly cron window and the
         # autoflood command. Cooldown-timer expiry is handled per-plant via
         # request_repeat(); due() is derived, there is no queue.
+        if self.ServiceMode
+            print("Autoflood: sweep skipped (service mode)")
+            return
+        end
         print("Autoflood: sweep")
         if self._flooding_plant() != nil
             print("Autoflood: channel flooding, skip sweep")
@@ -1234,6 +1247,29 @@ class Watering
             end
             i += 1
         end
+    end
+
+    def service_enter()
+        # Explicit entry into service mode (button on /svc). Arms a fixed 2h
+        # timeout regardless of activity; re-entering simply re-arms it.
+        self.ServiceMode = true
+        tasmota.remove_timer("ID_SERVICE_MODE_TIMEOUT")
+        tasmota.set_timer(2*60*60*1000, /-> self.service_timeout(), "ID_SERVICE_MODE_TIMEOUT")
+        print("Service mode ON (timeout 2h)")
+    end
+
+    def service_exit()
+        if !self.ServiceMode
+            return
+        end
+        self.ServiceMode = false
+        tasmota.remove_timer("ID_SERVICE_MODE_TIMEOUT")
+        print("Service mode OFF")
+    end
+
+    def service_timeout()
+        print("Service mode: 2h timeout expired")
+        self.service_exit()
     end
 
     def timer_endfasttele_after_flooded()
@@ -1457,6 +1493,7 @@ class Watering
     def deinit()
         self.Store.flush(true)
         tasmota.remove_timer("ID_PERSIST_SAVE")
+        tasmota.remove_timer("ID_SERVICE_MODE_TIMEOUT")
         tasmota.remove_rule("BUTTON1")
         tasmota.remove_cron("auto_flood")
         tasmota.remove_timer("ID_ENDFASTTELE")
@@ -1671,16 +1708,30 @@ class Watering
     end
 
     def page_service()
-        # Standalone service page (/svc). Stage 1: scaffold only (title + back
-        # button); service-mode enter/exit, channel control and flow calibration
-        # render here in later stages.
+        # Standalone service page (/svc). Service-mode entry/exit is explicit
+        # (buttons, not mere page load): a tab opened and closed in the browser
+        # must not toggle anything. Channel control and flow calibration render
+        # here in the next stage.
         import webserver
         if !webserver.check_privileged_access()
             return nil
         end
+        # Act on enter/exit args before rendering so the page reflects the result.
+        if webserver.has_arg("enter")
+            self.service_enter()
+        end
+        if webserver.has_arg("exit")
+            self.service_exit()
+        end
+        var state = self.ServiceMode ? "включен" : "выключен"
         webserver.content_start("Сервисный режим")
         webserver.content_send_style()
-        webserver.content_send("<p>Сервисный режим: управление каналами и калибровка датчика потока.</p>")
+        webserver.content_send("<p>Сервисный режим: " .. state .. ".</p>")
+        if self.ServiceMode
+            webserver.content_send("<form action='?exit=1' style='display: block;' method='get'><button>Выйти</button></form>")
+        else
+            webserver.content_send("<form action='?enter=1' style='display: block;' method='get'><button>Включить сервисный режим</button></form>")
+        end
         webserver.content_button(webserver.BUTTON_MAIN)
         webserver.content_stop()
     end
@@ -1803,6 +1854,15 @@ class Watering
     #- each section is guarded: a crash in one must not truncate the rest -#
         import string
         var msg
+
+        # Main-page status banner while the service mode is active.
+        if self.ServiceMode
+            try
+                tasmota.web_send_decimal(wrow("Сервисный режим", "включен"))
+            except .. as e
+                print("web_sensor: service banner failed " .. e)
+            end
+        end
 
         try
             if webserver.has_arg("m_reset_water_counter_1")

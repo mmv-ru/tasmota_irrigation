@@ -265,3 +265,11 @@ timer_soil_transition_after_flooded →
 - Команда `DrySoak` (регистрируется в `init_sensors()`, снимается в `deinit()`): пусто/`status` → строка `preset=…, DryThreshold=…, dose=…, since=…`; `start` → принудительная dry-замочка на канале 1 (пресет `dry`, доза `SoakStartDose`, через `request_manual`), иначе `resp_cmnd_error()`.
 - Веб: настройки канала — кнопка `⚙` (label `Настройки порогов`) в группе `Уставки` detail канала, JS-попап, суффиксные арги `m_drythr_N`/`m_soakdose_N` (+ `m_soildry_N`/`m_soilwet_N` для порогов; bare-арги = канал 1, legacy), пишутся в `P{Num}DryThreshold`/`P{Num}SoakStartDose` через `Store.set`, debounced; ряды `web_sensor()`: `Flooding in process`, `Dry soak` (`none` / `soak, dose N`), `Dry threshold`.
 - Сухая замочка НЕ пишет Prev*/estimate-статы (`WriteStats=false`): `save_batch_entries` в `start_session`, трекинг `SoilMaxHymidity` и его инвалидация в `every_second` пропускаются (`_stats_enabled()`).
+
+## Сервисный режим (Watering, не FSM-канал)
+
+- Вход/выход строго по явным кнопкам на странице `/svc` (`?enter=1` / `?exit=1`); простое открытие страницы режим не меняет (вкладка в браузере не должна ничего переключать).
+- `Watering.ServiceMode` (bool, in-memory, не персистится) + таймер `ID_SERVICE_MODE_TIMEOUT` = ровно 2ч (фикс, без учёта активности); повторный вход пере-армит таймер, `service_timeout()` (`?exit=1`) снимает его.
+- В активном режиме заблокированы все точки запуска автополива: `auto_flood()` (sweep), `request_repeat()`, `request_manual()` — помпа НЕ включается.
+- На главной странице при активном режиме — баннер «Сервисный режим: включен» (в `web_sensor()`).
+- Управление каналами, сервисные прогоны и калибровка датчика потока — следующий этап (этап 3).
