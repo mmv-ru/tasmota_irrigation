@@ -219,8 +219,8 @@ flowchart TD
 | Метод | Роль |
 |-------|------|
 | `dose(watering)` | Доза для запуска: `dry` → `DrySoakDose` (стартует с `SoakStartDose`); `normal` → `planned_dose()` |
-| `evaluate(watering)` | Диспетчер пост-поливной проверки: `dry` → `_evaluate_trend()`, `normal` → `_evaluate_escalate()`; возвращает `'repeat'/'hold'/'pause'/'stop'` (запуск НЕ делает — арбитр `request_repeat`) |
-| `_evaluate_trend(watering)` | Сухая замочка: stop при `RawEma < StopRaw`, кольцо `DryEmaHistory`, DailyCap-пауза, repeat пока окно не заполнено, эскалация `×DoseGrow` (кап `SoakMaxDose`) либо hold |
+| `evaluate(plant)` | Диспетчер пост-поливной проверки: `dry` → `_evaluate_trend()`, `normal` → `_evaluate_escalate()`; возвращает `'repeat'/'hold'/'pause'/'stop'` (запуск НЕ делает — арбитр `request_repeat`) |
+| `_evaluate_trend(plant)` | Сухая замочка: stop при `RawEma < StopRaw`, кольцо `DryEmaHistory`, DailyCap-пауза, repeat пока окно не заполнено, эскалация `×DoseGrow` (кап `SoakMaxDose`) либо hold |
 
 ## Ключевые флаги-состояния (per-channel, поля Plant)
 

@@ -634,86 +634,86 @@ class FloodPreset
         end
     end
 
-    def dose(watering)
+    def dose(plant)
         # StartDose==0 means "use the classic planned dose (estimate or default)".
         # The dry soak uses the adaptive DrySoakDose, which starts at StartDose
         # and grows with the trend escalation.
         if self.StartDose != nil && self.StartDose > 0
-            return watering.DrySoakDose != nil ? watering.DrySoakDose : self.StartDose
+            return plant.DrySoakDose != nil ? plant.DrySoakDose : self.StartDose
         end
-        return watering.planned_dose()
+        return plant.planned_dose()
     end
 
-    def evaluate(watering)
+    def evaluate(plant)
         # Post-flood soil check. Returns 'repeat' | 'hold' | 'pause' | 'stop'.
         # 'repeat' is NOT started here: the dispatcher arbitrates (shared flow
-        # counter, one fill at a time) via watering.Owner.request_repeat().
+        # counter, one fill at a time) via plant.Owner.request_repeat().
         if self.AdaptMode == 'trend'
-            return self._evaluate_trend(watering)
+            return self._evaluate_trend(plant)
         end
-        return self._evaluate_escalate(watering)
+        return self._evaluate_escalate(plant)
     end
 
-    def _evaluate_escalate(watering)
-        return watering._escalate_evaluate()
+    def _evaluate_escalate(plant)
+        return plant._escalate_evaluate()
     end
 
-    def _evaluate_trend(watering)
-        var sensor = watering.SoilSensor
+    def _evaluate_trend(plant)
+        var sensor = plant.SoilSensor
         var now = tasmota.millis()
         # Soil recovered past the dry threshold -> the soak is done.
         if sensor.RawEma < self.StopRaw
             print("Dry soak: RawEma " .. sensor.RawEma .. " < StopRaw " .. self.StopRaw .. ", stop session")
-            watering._drysoak_end()
+            plant._drysoak_end()
             return 'stop'
         end
         # Record current EMA into the in-memory history ring (pruned to window).
-        watering.DryEmaHistory.push({'ms': now, 'ema': sensor.RawEma})
+        plant.DryEmaHistory.push({'ms': now, 'ema': sensor.RawEma})
         var windowMs = self.WindowSec * 1000
-        while watering.DryEmaHistory.size() > 1 && now - watering.DryEmaHistory[0]['ms'] > windowMs
-            watering.DryEmaHistory.remove(0)
+        while plant.DryEmaHistory.size() > 1 && now - plant.DryEmaHistory[0]['ms'] > windowMs
+            plant.DryEmaHistory.remove(0)
         end
         # Daily volume cap: no more soaking today, re-check after the cadence.
-        if self._cap_reached(watering, now)
+        if self._cap_reached(plant, now)
             print("Dry soak: daily cap reached, pausing")
-            watering._rearm_soil_check(int(watering.Store.get(self.Prefix .. 'SoakInterval')) * 1000)
+            plant._rearm_soil_check(int(plant.Store.get(self.Prefix .. 'SoakInterval')) * 1000)
             return 'pause'
         end
         # Trend window not full yet -> no escalation basis, repeat same dose.
-        if now - watering.DryEmaHistory[0]['ms'] < windowMs
+        if now - plant.DryEmaHistory[0]['ms'] < windowMs
             print("Dry soak: trend window not full, repeating dose")
             return 'repeat'
         end
         # Soil got drier or stayed put over the window -> dose up, else hold.
         # Humidity rises as RawEma falls: DeltaRaw < 0 means the soak works.
-        var delta = sensor.RawEma - watering.DryEmaHistory[0]['ema']
+        var delta = sensor.RawEma - plant.DryEmaHistory[0]['ema']
         if delta >= 0
-            watering.DrySoakDose = int(real(watering.DrySoakDose) * self.DoseGrow)
-            if watering.DrySoakDose > self.MaxDose
-                watering.DrySoakDose = self.MaxDose
+            plant.DrySoakDose = int(real(plant.DrySoakDose) * self.DoseGrow)
+            if plant.DrySoakDose > self.MaxDose
+                plant.DrySoakDose = self.MaxDose
                 print("Dry soak: dose capped at MaxDose " .. self.MaxDose)
             end
-            print("Dry soak: no response over window, dose escalated to " .. watering.DrySoakDose)
+            print("Dry soak: no response over window, dose escalated to " .. plant.DrySoakDose)
             return 'repeat'
         else
             print("Dry soak: humidity rising, holding")
-            watering._rearm_soil_check(int(watering.Store.get(self.Prefix .. 'SoakInterval')) * 1000)
+            plant._rearm_soil_check(int(plant.Store.get(self.Prefix .. 'SoakInterval')) * 1000)
             return 'hold'
         end
     end
 
-    def _cap_reached(watering, now)
+    def _cap_reached(plant, now)
         # Sum ticks flooded in the last 24h from the DryDailyTicks ring.
         var capMs = 24*60*60*1000
         var sum = 0
         var i = 0
-        while i < watering.DryDailyTicks.size()
-            var t = watering.DryDailyTicks[i]
+        while i < plant.DryDailyTicks.size()
+            var t = plant.DryDailyTicks[i]
             if now - t['ms'] <= capMs
                 sum += int(t['ticks'])
                 i += 1
             else
-                watering.DryDailyTicks.remove(i)
+                plant.DryDailyTicks.remove(i)
             end
         end
         return sum >= self.DailyCap
