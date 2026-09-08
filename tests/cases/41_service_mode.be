@@ -174,6 +174,12 @@ SIM['webhtml'] = list()
 wp1.page_service()
 assert_eq(F0.Scale, 4.0, "scale derived from volume/ticks (1000/250)")
 assert_eq(real(St.get('FlowScale')), 4.0, "calibrated scale persisted")
+var lc = wp1.LastCalibration
+assert_true(lc != nil, "calibration snapshot recorded")
+assert_eq(lc['num'], 1, "snapshot names the calibrated channel")
+assert_eq(lc['vol'], 1000, "snapshot keeps the measured volume")
+assert_eq(lc['ticks'], 250, "snapshot keeps the run ticks")
+assert_eq(lc['millis'], 60000, "snapshot keeps the run duration")
 var pcal = ""
 for m: SIM['webhtml'] pcal = pcal + m end
 assert_true(string.find(pcal, "Калибровка датчика потока") >= 0, "calibration fieldset on the page")
@@ -292,3 +298,56 @@ assert_true(sr8 != nil, "exit stop reported a result")
 assert_eq(sr8['ticks'], 100, "exit stop tick delta (400-300)")
 
 # ---------------- finished ----------------
+
+# ---------------- OFF state: scale + last calibration visible, set without mode ----------------
+
+# the current C1 scale and last-calibration stats stay on /svc after the mode
+# is turned off (LastCalibration survived the exit in the section above)
+var Fx = wp1.FlowSensors[0]
+var Sx = wp1.Store
+
+section("service_off_state_last_calibration_row")
+
+assert_true(!wp1.ServiceMode, "mode off after the exit section")
+var pafter = ""
+SIM['webhtml'] = list()
+webserver.has_arg = def (name) return false end
+wp1.page_service()
+for m: SIM['webhtml'] pafter = pafter + m end
+assert_true(string.find(pafter, "Scale (мл/тик)") >= 0, "current scale shown while off")
+assert_true(string.find(pafter, "Последняя калибровка: канал 1, 1000 мл / 250 тиков (4.0000 мл/тик), 60.0 с, 250.0 тиков/мин (1000.0 мл/мин)") >= 0, "last-calibration stats row shown while off")
+assert_true(string.find(pafter, "0.5000") >= 0, "current (manual-set) scale rendered while off")
+assert_true(string.find(pafter, "name='set' value='1'") >= 0, "direct scale-entry form present while off")
+assert_true(string.find(pafter, "name='cal' value='1'") < 0, "volume calibration form not offered while off")
+
+section("service_off_state_scale_and_set_form")
+
+# no calibration yet: no stats row, but scale + direct-entry form still shown
+wp1.LastCalibration = nil
+wp1.ServiceMode = false
+SIM['webhtml'] = list()
+wp1.page_service()
+var p0 = ""
+for m: SIM['webhtml'] p0 = p0 + m end
+assert_true(string.find(p0, "Scale (мл/тик)") >= 0, "current scale shown while off (no calibration yet)")
+assert_true(string.find(p0, "Последняя калибровка") < 0, "no last-calibration row before the first calibration")
+assert_true(string.find(p0, "name='set' value='1'") >= 0, "direct scale-entry form present while off")
+assert_true(string.find(p0, "action='?") < 0, "no command args in form actions while off")
+
+# ?set=1&scale=... applies and persists regardless of the mode; no timer, no toggle
+SIM['timers'] = map()
+webserver.has_arg = def (name) return name == 'set' || name == 'scale' end
+webserver.arg = def (name, dflt) if name == 'scale' return '0.7' end return dflt end
+Fx.setScale(0.1449)
+wp1.page_service()
+assert_eq(Fx.Scale, 0.7, "manual coefficient applied while off")
+assert_eq(real(Sx.get('FlowScale')), 0.7, "manual coefficient persisted while off")
+assert_true(!wp1.ServiceMode, "mode still off after scale set")
+assert_true(SIM['timers'].find("ID_SERVICE_MODE_TIMEOUT") == nil, "no timeout timer armed by scale set while off")
+
+webserver.arg = def (name, dflt) if name == 'scale' return 'abc' end return dflt end
+wp1.page_service()
+assert_eq(Fx.Scale, 0.7, "non-numeric coefficient ignored while off")
+webserver.arg = def (name, dflt) if name == 'scale' return '0' end return dflt end
+wp1.page_service()
+assert_eq(Fx.Scale, 0.7, "zero coefficient ignored while off")

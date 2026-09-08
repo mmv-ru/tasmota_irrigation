@@ -1183,6 +1183,7 @@ class Watering
     var Conf_Toggle
     var ServiceMode
     var ServiceResult
+    var LastCalibration
     var plants
     var PowerMap
     var _rr_idx
@@ -1798,9 +1799,11 @@ class Watering
             if webserver.has_arg("cal")
                 self._service_calibrate()
             end
-            if webserver.has_arg("set")
-                self._service_set_scale_arg()
-            end
+        end
+        # The manual scale coefficient is available regardless of the mode: the
+        # /svc page offers the direct-entry form even while the mode is off.
+        if webserver.has_arg("set")
+            self._service_set_scale_arg()
         end
         webserver.content_start("Сервисный режим")
         webserver.content_send_style()
@@ -1810,6 +1813,9 @@ class Watering
             self._service_page_on()
         else
             webserver.content_send("<form action='svc' style='display: block;' method='get'><input type='hidden' name='start' value='1'><button>Включить сервисный режим</button></form>")
+            # Current C1 scale, last calibration stats and the direct-entry form
+            # are visible without enabling the mode.
+            self._service_cal_fieldset(false)
         end
         webserver.content_button(webserver.BUTTON_MAIN)
         webserver.content_stop()
@@ -1868,6 +1874,13 @@ class Watering
         if v <= 0
             return
         end
+        # Keep a snapshot of the run used for this calibration so the /svc page
+        # can show the last calibration stats (volume, duration, flow rate) even
+        # after the mode is turned off. Survives until the next successful cal.
+        self.LastCalibration = {
+            'num': sr['num'], 'vol': vol, 'ticks': sr['ticks'],
+            'millis': sr['millis'], 'scale': v
+        }
         self.service_set_scale(v)
     end
 
@@ -1896,31 +1909,61 @@ class Watering
                 "<form action='svc' style='display: inline-block;' method='get'><input type='hidden' name='pump' value='" .. str(i + 1) .. "'><input type='hidden' name='off' value='1'><button>OFF</button></form></p>")
         end
         webserver.content_send("</fieldset>")
-        var sr = self.ServiceResult
+        self._service_cal_fieldset(true)
+        webserver.content_send("<form action='svc' style='display: block;' method='get'><input type='hidden' name='exit' value='1'><button>Выйти</button></form>")
+    end
+
+    def _service_cal_fieldset(show_cal)
+        # Flow-sensor calibration fieldset shared by the ON and OFF page states.
+        # show_cal: ON state also renders the last service run and the measured-
+        # volume calibration form (needs the service-only pump controls).
+        # OFF state: current C1 scale + last calibration stats + the direct
+        # scale-entry form (no mode required).
+        import string
         webserver.content_send("<fieldset><legend>Калибровка датчика потока</legend>")
         webserver.content_send("<p>Scale (мл/тик): <b>" .. string.format("%01.4f", self.FlowSensors[0].Scale) .. "</b></p>")
-        if sr != nil
-            var dur = sr['millis'] != nil ? string.format("%01.1f", sr['millis'] / 1000.0) : "0"
-            var tpm = (sr['ticks'] != nil && sr['millis'] != nil && sr['millis'] > 0) ?
-                      string.format("%01.1f", sr['ticks'] * 60000.0 / sr['millis']) : "0"
-            var uml = (sr['ticks'] != nil) ? string.format("%01.1f", self.FlowSensors[0].Scale * sr['ticks']) : "0"
+        if show_cal
+            var sr = self.ServiceResult
+            if sr != nil
+                var dur = sr['millis'] != nil ? string.format("%01.1f", sr['millis'] / 1000.0) : "0"
+                var tpm = (sr['ticks'] != nil && sr['millis'] != nil && sr['millis'] > 0) ?
+                          string.format("%01.1f", sr['ticks'] * 60000.0 / sr['millis']) : "0"
+                var uml = (sr['ticks'] != nil) ? string.format("%01.1f", self.FlowSensors[0].Scale * sr['ticks']) : "0"
+                webserver.content_send(
+                    "<p>Последний прогон: канал " .. str(sr['num']) ..
+                    ", " .. dur .. " с, " .. str(sr['ticks']) .. " тиков (" ..
+                    tpm .. " тиков/мин, " .. uml .. " мл при текущем scale).</p>")
+            end
             webserver.content_send(
-                "<p>Последний прогон: канал " .. str(sr['num']) ..
-                ", " .. dur .. " с, " .. str(sr['ticks']) .. " тиков (" ..
-                tpm .. " тиков/мин, " .. uml .. " мл при текущем scale).</p>")
+                "<p>Прокачайте воду (кнопки Канал ON/OFF) и укажите измеренный объём:</p>" ..
+                "<form action='svc' style='display: block;' method='get'>" ..
+                "<input type='hidden' name='cal' value='1'>" ..
+                "<input name='vol' type='text' placeholder='объём, мл'> " ..
+                "<button>Калибровать (мл/тик)</button></form>" ..
+                "<form action='svc' style='display: block;' method='get'>" ..
+                "<input type='hidden' name='set' value='1'>" ..
+                "<input name='scale' type='text' placeholder='коэффициент, мл/тик'> " ..
+                "<button>Установить коэффициент</button></form>")
+        else
+            var lc = self.LastCalibration
+            if lc != nil
+                var dur = lc['millis'] != nil ? string.format("%01.1f", lc['millis'] / 1000.0) : "0"
+                var tpm = (lc['ticks'] != nil && lc['millis'] != nil && lc['millis'] > 0) ?
+                          string.format("%01.1f", lc['ticks'] * 60000.0 / lc['millis']) : "0"
+                var uml = (lc['ticks'] != nil) ? string.format("%01.1f", lc['scale'] * lc['ticks']) : "0"
+                webserver.content_send(
+                    "<p>Последняя калибровка: канал " .. str(lc['num']) ..
+                    ", " .. string.format("%01.0f", lc['vol']) .. " мл / " .. str(lc['ticks']) ..
+                    " тиков (" .. string.format("%01.4f", lc['scale']) .. " мл/тик), " ..
+                    dur .. " с, " .. tpm .. " тиков/мин (" .. uml .. " мл/мин).</p>")
+            end
+            webserver.content_send(
+                "<form action='svc' style='display: block;' method='get'>" ..
+                "<input type='hidden' name='set' value='1'>" ..
+                "<input name='scale' type='text' placeholder='коэффициент, мл/тик'> " ..
+                "<button>Установить коэффициент</button></form>")
         end
-        webserver.content_send(
-            "<p>Прокачайте воду (кнопки Канал ON/OFF) и укажите измеренный объём:</p>" ..
-            "<form action='svc' style='display: block;' method='get'>" ..
-            "<input type='hidden' name='cal' value='1'>" ..
-            "<input name='vol' type='text' placeholder='объём, мл'> " ..
-            "<button>Калибровать (мл/тик)</button></form>" ..
-            "<form action='svc' style='display: block;' method='get'>" ..
-            "<input type='hidden' name='set' value='1'>" ..
-            "<input name='scale' type='text' placeholder='коэффициент, мл/тик'> " ..
-            "<button>Установить коэффициент</button></form>")
         webserver.content_send("</fieldset>")
-        webserver.content_send("<form action='svc' style='display: block;' method='get'><input type='hidden' name='exit' value='1'><button>Выйти</button></form>")
     end
 
 
