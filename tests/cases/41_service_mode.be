@@ -351,3 +351,93 @@ assert_eq(Fx.Scale, 0.7, "non-numeric coefficient ignored while off")
 webserver.arg = def (name, dflt) if name == 'scale' return '0' end return dflt end
 wp1.page_service()
 assert_eq(Fx.Scale, 0.7, "zero coefficient ignored while off")
+
+section("service_off_state_channels_fieldset")
+
+# the global channel count is a Store variable this page can change: the fieldset
+# shows the current number and a form that posts ?channels=N (no mode required).
+# NB: the pinned stock Berry fails on chained map indexes (a['x']['y'] -> key_error),
+# so read the meta map through a local variable first.
+var mch = Sx.Meta['Channels']
+assert_eq(mch['default'], "2", "registered default Channels is 2 (runner default)")
+assert_eq(Sx.get('Channels'), "4", "persist fixture keeps the suite on 4 channels")
+wp1._channels_pending = nil
+SIM['webhtml'] = list()
+webserver.has_arg = def (name) return false end
+wp1.page_service()
+var pch = ""
+for m: SIM['webhtml'] pch = pch + m end
+assert_true(string.find(pch, "<legend>Каналы</legend>") >= 0, "channels fieldset present while off")
+assert_true(string.find(pch, "Каналов: <b>4</b>") >= 0, "current channel count shown")
+assert_true(string.find(pch, "name='channels'") >= 0, "channels input form present")
+assert_true(string.find(pch, "name='restart'") < 0, "no restart form before a change is applied")
+
+section("service_page_channels_invalid")
+
+# out-of-range and non-numeric values are rejected: Store untouched, no restart.
+SIM['cmds'] = list()
+webserver.has_arg = def (name) return name == 'channels' end
+webserver.arg = def (name, dflt) if name == 'channels' return '99' end return dflt end
+wp1.page_service()
+assert_eq(Sx.get('Channels'), "4", "out-of-range count not persisted")
+assert_true(wp1._channels_pending == nil, "no pending change recorded")
+webserver.arg = def (name, dflt) if name == 'channels' return 'abc' end return dflt end
+wp1.page_service()
+assert_eq(Sx.get('Channels'), "4", "non-numeric count not persisted")
+assert_true(SIM['timers'].find("ID_SVC_RESTART") == nil, "no restart timer armed by a rejected change")
+
+section("service_page_channels_set_off")
+
+# ?channels=2 persists immediately (store) but does not rebuild until restart;
+# the Store parameters of the disabled channels are kept as-is.
+SIM['timers'] = map()
+webserver.has_arg = def (name) return name == 'channels' end
+webserver.arg = def (name, dflt) if name == 'channels' return '2' end return dflt end
+SIM['webhtml'] = list()
+wp1.page_service()
+assert_eq(Sx.get('Channels'), "2", "channels value persisted")
+assert_eq(wp1.NumChannels, 4, "NumChannels unchanged until restart")
+assert_eq(wp1._channels_pending, 2, "pending change flag stored")
+assert_true(SIM['timers'].find("ID_SVC_RESTART") == nil, "no auto-restart on apply")
+var pch2 = ""
+for m: SIM['webhtml'] pch2 = pch2 + m end
+assert_true(string.find(pch2, "Требуется перезагрузка") >= 0, "restart hint rendered after the change")
+assert_true(string.find(pch2, "name='restart' value='1'") >= 0, "restart button offered after the change")
+assert_eq(Sx.get('P3TargetDry'), "800", "channel 3 params kept after shrinking to 2")
+assert_eq(Sx.get('P4TargetWet'), "760", "channel 4 params kept after shrinking to 2")
+assert_eq(Sx.get('P3SoakDailyCap'), "1500", "soak param of a disabled channel kept")
+assert_true(Sx.Meta.find('P4PrevFloodedVol') != nil, "P4 keys still registered after shrinking")
+
+section("service_page_channels_restart")
+
+# the restart button defers Restart 1 by 1s so the browser gets the response first
+SIM['cmds'] = list()
+webserver.has_arg = def (name) return name == 'restart' end
+SIM['timers'] = map()
+wp1.page_service()
+assert_true(SIM['timers'].find("ID_SVC_RESTART") != nil, "restart timer armed")
+assert_eq(SIM['timers']["ID_SVC_RESTART"]['delay'], 1000, "restart deferred by 1s")
+SIM['timers']["ID_SVC_RESTART"]['cb']()
+assert_true(cmds_include("Restart 1"), "deferred timer fires Restart 1")
+
+section("service_page_channels_set_on")
+
+# the fieldset is also rendered while the mode is on, and the change is accepted there
+webserver.has_arg = def (name) return name == 'start' end
+SIM['webhtml'] = list()
+wp1.page_service()
+assert_true(wp1.ServiceMode, "mode on for the channels-on test")
+var pon = ""
+for m: SIM['webhtml'] pon = pon + m end
+assert_true(string.find(pon, "<legend>Каналы</legend>") >= 0, "channels fieldset rendered while on")
+webserver.has_arg = def (name) return name == 'channels' end
+webserver.arg = def (name, dflt) if name == 'channels' return '3' end return dflt end
+wp1.page_service()
+assert_eq(Sx.get('Channels'), "3", "channels value changed while mode on")
+
+# restore: keep the fixture on 4 channels, clear pending state and the mode
+wp1.ServiceMode = false
+wp1._channels_pending = nil
+Sx.set('Channels', '4')
+Sx.flush(true)
+SIM['timers'] = map()

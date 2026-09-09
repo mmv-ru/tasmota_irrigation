@@ -1192,6 +1192,7 @@ class Watering
     var TimeCache
     var Store
     var NumChannels
+    var _channels_pending
 
 
     def button_pressed(cmd, idx, payload, raw)
@@ -1372,11 +1373,12 @@ class Watering
         print("Init Watering object")
         print("imported", tasmota)
         self.BootInitTries = 0
+        self._channels_pending = nil
         self.Store = PersistStore()
         # Channel count is a Store variable (persistent, immediate policy) so
         # the number of channels can be configured without code changes. It is
         # registered before load() and clamped to [1, MAX_CHANNELS].
-        self.Store.register('Channels', {'default': '4', 'policy': 'immediate'})
+        self.Store.register('Channels', {'default': '2', 'policy': 'immediate'})
         # Global flow-sensor calibration (ml per counter tick). The C1 flow
         # meter is shared by every channel, so the scale is a global key, not a
         # per-channel P{Num} one. Calibrated from the service page.
@@ -1805,6 +1807,17 @@ class Watering
         if webserver.has_arg("set")
             self._service_set_scale_arg()
         end
+        # The channel count is a global Store variable, so this form works in
+        # any mode state (like the scale form). Reducing Channels never removes
+        # the stored per-channel parameters of the disabled channels.
+        if webserver.has_arg("channels")
+            self._service_channels_arg()
+        end
+        if webserver.has_arg("restart")
+            # Deferred so the browser receives the response first. On the harness
+            # the timer/command are asserted from SIM.
+            tasmota.set_timer(1000, /-> tasmota.cmd('Restart 1'), "ID_SVC_RESTART")
+        end
         webserver.content_start("Сервисный режим")
         webserver.content_send_style()
         var state = self.ServiceMode ? "включен" : "выключен"
@@ -1817,6 +1830,7 @@ class Watering
             # are visible without enabling the mode.
             self._service_cal_fieldset(false)
         end
+        self._service_channels_fieldset()
         webserver.content_button(webserver.BUTTON_MAIN)
         webserver.content_stop()
     end
@@ -1892,6 +1906,44 @@ class Watering
             return
         end
         self.service_set_scale(sc)
+    end
+
+    def _service_channels_arg()
+        # ?channels=N: change the (global) channel count. Persisted immediately
+        # (immediate policy) and applied on the next boot. The per-channel Store
+        # parameters of the disabled channels are left untouched.
+        var n = int(webserver.arg("channels"))
+        if n == nil || n < 1 || n > MAX_CHANNELS
+            print("Service: bad channels arg '" .. str(webserver.arg("channels")) .. "'")
+            return
+        end
+        self.Store.set('Channels', str(n))
+        self._channels_pending = n
+        print("Service: channels set to " .. str(n) .. ", restart required")
+    end
+
+    def _service_channels_fieldset()
+        # Channel-count fieldset rendered in any mode state. After the value has
+        # just been changed it shows a "restart required" note plus a restart
+        # button (the sensor/plant/rules layout is built on boot).
+        import string
+        webserver.content_send("<fieldset><legend>Каналы</legend>")
+        webserver.content_send("<p>Каналов: <b>" .. str(self.NumChannels) .. "</b>.</p>")
+        if self._channels_pending != nil
+            webserver.content_send(
+                "<p>Задано <b>" .. str(self._channels_pending) ..
+                "</b>. Требуется перезагрузка, чтобы перестроить каналы.</p>" ..
+                "<form action='svc' style='display: block;' method='get'>" ..
+                "<input type='hidden' name='restart' value='1'>" ..
+                "<button>Перезагрузить устройство</button></form>")
+        else
+            webserver.content_send(
+                "<form action='svc' style='display: block;' method='get'>" ..
+                "<input name='channels' type='number' min='1' max='" .. str(MAX_CHANNELS) ..
+                "' value='" .. str(self.NumChannels) .. "'> " ..
+                "<button>Применить</button></form>")
+        end
+        webserver.content_send("</fieldset>")
     end
 
     def _service_page_on()

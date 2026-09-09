@@ -7,6 +7,11 @@ class Persist
     var saves
     def init()
         self._p = {}
+        # Characterisation fixture: the suite exercises the 4-channel page layout
+        # (web-sensor channel 4 detail, NumChannels/Channels assertions). The
+        # watering runner registers its own default ('2'); seeding this stub keeps
+        # the existing 4-channel coverage running unchanged.
+        self._p['Channels'] = '4'
         self.saves = 0
     end
     def find(k, d) return self._p.find(k, d) end
