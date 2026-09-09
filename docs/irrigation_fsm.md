@@ -277,3 +277,62 @@ timer_soil_transition_after_flooded →
   - Сервисный прогон: без мокрого-грунта, без `FinishRule`/сессии/статистки, но с `TelePeriod 10` + rate-измерением и снимком `Counter1BeforeStart`; стоп отдаёт `Watering.ServiceResult = {num, ticks, millis}` (тики = C1-дельта, без компенсации счётчика) и пере-армит `ID_ENDFASTTELE` на 60с. `PulseTime` (60с) остаётся предохранителем.
   - Калибровка: `?cal=1&vol=мл` — `scale = объём / тики последнего прогона`; `?set=1&scale=коэф` — ручной ввод мл/тик (работает в любом состоянии режима). Результат (`service_set_scale`) пишется глобально (C1 общий) в Store-ключ `FlowScale` (default `0.1449`, политика `debounced`); `init_sensors()` читает его при старте (невалидное значение → фолбэк на встроенный scale). Успешная `cal` сохраняет `Watering.LastCalibration = {num, vol, ticks, millis, scale}` — его рендерит OFF-страница.
   - `service_exit()` дополнительно останавливает идущий сервисный прогон (`set_power` своего канала), таймер/баннер как выше.
+
+## Параметры полива
+
+Использованные сокращения:
+- **RAW** — сырое значение почвенного датчика (ADC, приблизительно 0..4095); суше — выше (`IsDry()`: `Raw >= RawDry`, `IsWet()`: `Raw <= RawWet`).
+- **тик C1** — импульс расходомера на общем счётчике Tasmota `COUNTER#C1`. Объёмы-дозы хранятся в тиках (НЕ домножаются на `FlowScale`); «мл» получаются через `FlowScale` (мл/тик) только при отображении/калибровке.
+
+### Глобальные (Watering, общие для всех каналов)
+
+| Параметр | Где задан | Store-ключ | Default | Размерность | Описание |
+|---|---|---|---|---|---|
+| `Channels` | `Watering.init()` | `Channels` (immediate) | 4 | шт | число каналов, clamp `[1, MAX_CHANNELS=4]` |
+| `FlowScale` | `FlowSensors[0]` | `FlowScale` (debounced) | 0.1449 | мл/тик C1 | калибровка расходомера C1, общий счётчик всех каналов; пишется с `/svc` (калибровка/ручной ввод) |
+
+### Per-Plant: захардкожены в `Plant.init()`
+
+Не персистятся, одинаковы для всех каналов; меняются только в коде.
+
+| Параметр | Store | Default | Размерность | Описание |
+|---|---|---|---|---|
+| `MaxPumpRun` | нет | 60 | с | кап времени работы помпы → `PulseTime{Num}` (аппаратный предохранитель этого FSM) |
+| `MaxFlood` | нет | 2000 | тик C1 | кап объёма сессии: `LastFloodVol > MaxFlood` → сессия закрывается; одновременно кап эскалации `Counter1FloodDefault` |
+| `Counter1FloodDefault` | нет | 200 | тик C1 | доза полива по умолчанию (fallback, когда `estimateflood()` вернул nil); при повторной заливке растёт ×1.2 до `MaxFlood` в RAM и теряется при рестарте |
+| `Counter1Backflow` | нет | 0 | тик C1 | компенсация обратного потока (для труб без обратного клапана, в коде закомментирован пример 133) |
+
+### Per-Plant: персистятся под префиксом `P{Num}`
+
+Регистрируются `Store.register_channel()` c политикой `debounced`; меняются через веб-настройки канала (пороги/сухая замочка) или Store.
+
+| Параметр | Где задан | Store-ключ | Default | Размерность | Описание |
+|---|---|---|---|---|---|
+| `TargetDry` → `RawDry` | `SoilSensor` | `P{Num}TargetDry` | 800 | RAW | уровень «сухо»: `Raw >= RawDry` → `IsDry()` (претендент на полив) |
+| `TargetWet` → `RawWet` | `SoilSensor` | `P{Num}TargetWet` | 760 | RAW | уровень «влажно»: `Raw <= RawWet` → `IsWet()` (стоп-критерий нормального пресета и вход `estimateflood()`) |
+| `DryThreshold` | `Plant` | `P{Num}DryThreshold` | 820 | RAW | выбор пресета: `RawEma > DryThreshold` → dry soak; он же `StopRaw` (выход из замочки) |
+| `SoakStartDose` | `Plant` | `P{Num}SoakStartDose` | 100 | тик C1 | стартовая доза сухой замочки |
+| `SoakInterval` | `Plant` | `P{Num}SoakInterval` | 7200 | с | каденс сухой замочки (пересдача/пауза) |
+| `SoakTrendWindow` | `Plant` | `P{Num}SoakTrendWindow` | 86400 | с | окно тренда `RawEma` для адаптации дозы |
+| `SoakDoseGrow` | `Plant` | `P{Num}SoakDoseGrow` | 1.2 | множитель | рост дозы замочки при отсутствии отклика |
+| `SoakDailyCap` | `Plant` | `P{Num}SoakDailyCap` | 1500 | тик C1 | суточный лимит объёма замочки |
+| `SoakMaxDose` | `Plant` | `P{Num}SoakMaxDose` | 2000 | тик C1 | кап дозы замочки |
+| `LastFloodVol` | `Plant` | `P{Num}LastFloodVol` | 0 | тик C1 | накопленный объём текущей сессии; на старте следующей архивируется в `PrevFloodedVol` |
+| `SoilHPreFlood` | `Plant` | `P{Num}SoilHPreFlood` | nil | RAW | EMA до полива (текущая сессия) |
+| `SoilMaxHymidity` / `SoilMaxHymidityTime` | `Plant` | `P{Num}SoilMaxHymidity` / `…Time` | nil | RAW / timestamp | максимум влажности после полива (текущая сессия) |
+| `PrevSoilHPreFlood` | `Plant` | `P{Num}PrevSoilHPreFlood` | nil | RAW | вход `estimateflood()`: EMA до прошлой сессии |
+| `PrevSoilMaxHymidity` | `Plant` | `P{Num}PrevSoilMaxHymidity` | nil | RAW | вход `estimateflood()`: макс. влажность после прошлой сессии |
+| `PrevFloodedVol` | `Plant` | `P{Num}PrevFloodedVol` | nil | тик C1 | вход `estimateflood()`: объём прошлой сессии |
+
+### `estimateflood()` и планирование дозы
+
+- **Формула** (watering.be `Plant.estimateflood()`):
+  `EstimatedFlood = PrevFloodedVol × (RawEma − RawWet) / (PrevSoilHPreFlood − PrevSoilMaxHymidity)`.
+- Использует персистенные `Prev*` (выше) и динамику: `RawEma` (in-memory EMA, `EMAN=600`, smoothing `k=2/(N+1)`) и `RawWet` (`P{Num}TargetWet`).
+- Если `EstimatedFlood < 100` или исключение/отсутствие данных → `nil` → `planned_dose()` возвращает `Counter1FloodDefault`.
+- Пресет `normal` (выбран когда `RawEma <= DryThreshold`): доза = `estimateflood()` либо default; повторный прогон при недополиве — `Counter1FloodDefault × 1.2` (кап `MaxFlood`).
+- Пресет `dry` (сухая замочка, `RawEma > DryThreshold`): доза = `DrySoakDose` (стартует с `SoakStartDose`, адаптируется `SoakTrendWindow`/`SoakDoseGrow`/`SoakMaxDose`, лимит `SoakDailyCap`/24ч), `estimateflood()`/`Prev*` НЕ используются (`WriteStats=false`).
+
+### Сессионные и служебные поля (не персистятся)
+
+`PumpStartMillis`, `PumpRunMillis`, `Counter1BeforeStart`, `FinishRule`, `PlannedFlood`, `AutofloodInProcess`, `ServiceRun`, `ServiceResult`, `LastFlowRate` (фактически «тиков C1/мин», комментарий «ml/min» в коде неточен), `DrySoakDose`, `DrySoakStartMillis`, `DryEmaHistory`, `DryDailyTicks`, `PauseSoilMaxStat` — живут только в RAM и обнуляются при рестарте устройства.
