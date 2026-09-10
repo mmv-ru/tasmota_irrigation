@@ -1825,7 +1825,7 @@ class Watering
         jsp.push("window._wdSett.className+=' open';};")
         jsp.push("window._wdSettingsClose=function(){if(window._wdSett)window._wdSett.className=window._wdSett.className.replace(' open','');};")
         jsp.push("window._wdSettingsSave=function(){var n=window._wdSett._num,q='';")
-        jsp.push("for(var i=0;i<_wdF.length;i++){q+='&'+_wdF[i][2]+n+'='+encodeURIComponent(eb(_wdF[i][0]).value);}")
+        jsp.push("for(var i=0;i<_wdF.length;i++){var a=_wdF[i][2].slice(0,-1);if(n>1)a+='_'+n;q+='&'+a+'='+encodeURIComponent(eb(_wdF[i][0]).value);}")
         jsp.push("la(q);window._wdSettingsClose();};")
         jsp.push("}")
         jsp.push("}catch(e){}</script>")
