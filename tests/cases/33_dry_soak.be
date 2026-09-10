@@ -1,11 +1,14 @@
 # Characterization: dry-soil soak preset (FloodPreset Type='dry').
-# Picked when RawEma > DryThreshold: fixed start dose, SoakInterval cadence,
-# 24h trend adaptation (escalate/hold), DailyCap pause, StopRaw stop. Does NOT
+# Picked when RawEma > DryThreshold: fixed start dose (ml), SoakInterval cadence,
+# 24h trend adaptation (escalate/hold), DailyCap pause (ml), StopRaw stop. Does NOT
 # write Prev*/estimate stats (WriteStats=false).
 import json
 
 section("dry_preset_pick_and_session_start")
 var P1 = wp1.plants[0]
+
+# Clean 2.0 ml/tick calibration for integer volumes in the record_flood checks.
+wp1.FlowSensors[0].Scale = 2.0
 
 # soil clearly dry by EMA above the default DryThreshold 820
 SIM['sensors']['ANALOG']['A1'] = 900
@@ -14,9 +17,9 @@ persist.saves = 0
 wp1.auto_flood()
 
 assert_true(P1.Preset != nil && P1.Preset.Type == 'dry', "dry preset picked when RawEma > DryThreshold")
-assert_eq(P1.DrySoakDose, 100, "dry soak start dose = SoakStartDose default")
+assert_eq(P1.DrySoakDose, 15, "dry soak start dose = SoakStartDose default (ml)")
 assert_eq(P1.AutofloodInProcess, true, "session started")
-assert_eq(P1.PlannedFlood, 100, "planned dose comes from the dry preset")
+assert_eq(P1.PlannedFlood, 15, "planned dose comes from the dry preset")
 assert_true(cmds_include("Power1 1"), "pump commanded ON")
 assert_eq(persist.saves, 0, "dry session does not persist prev-stats (WriteStats=false)")
 assert_true(!persist.has('P1PrevFloodedVol'), "PrevFloodedVol not written by dry session")
@@ -30,9 +33,9 @@ section("dry_record_flood_uses_soak_interval")
 # completed flood under the dry preset -> SoakInterval cadence + daily tracking
 SIM['millis'] = 0
 P1._record_flood(100)
-assert_eq(P1.LastFloodVol, 100, "volume accumulated")
-assert_true(P1.DryDailyTicks.size() == 1, "daily tick recorded")
-assert_eq(P1.DryDailyTicks[0]['ticks'], 100, "recorded dose")
+assert_eq(P1.LastFloodVol, 200, "volume accumulated (100 ticks x 2.0 ml)")
+assert_true(P1.DryDailyVol.size() == 1, "daily volume recorded")
+assert_eq(P1.DryDailyVol[0]['vol'], 200, "recorded dose (ml)")
 var st = SIM['timers']['ID_SOILTRANSITION_AFTERFLOOD_P1']
 assert_eq(st['delay'], 7200*1000, "SoakInterval (2h) between dry soaks")
 
@@ -55,7 +58,7 @@ section("trend_no_response_escalates_after_window")
 # 24h later the soil still did not respond (RawEma unchanged) -> dose x1.2
 P1.DryEmaHistory = list()
 P1.DryEmaHistory.push({'ms': 0, 'ema': 900})
-P1.DryDailyTicks = list()
+P1.DryDailyVol = list()
 P1.DrySoakDose = 100
 wp1.SoilSensors[0].RawEma = 900
 SIM['millis'] = 24*60*60*1000
@@ -67,24 +70,24 @@ assert_eq(P1.DrySoakDose, 120, "no response over the window -> dose x1.2")
 
 section("trend_dose_capped_at_maxdose")
 
-# escalation must not exceed SoakMaxDose (2000)
+# escalation must not exceed SoakMaxDose (300 ml default)
 P1.DryEmaHistory = list()
 P1.DryEmaHistory.push({'ms': 0, 'ema': 900})
-P1.DryDailyTicks = list()
+P1.DryDailyVol = list()
 P1.DrySoakDose = 1900
 wp1.SoilSensors[0].RawEma = 900
 SIM['millis'] = 24*60*60*1000
 SIM['cmds'] = list()
 tasmota.set_power(0, false)
 P1.timer_soil_transition_after_flooded()
-assert_eq(P1.DrySoakDose, 2000, "dry dose capped at SoakMaxDose")
+assert_eq(P1.DrySoakDose, 300, "dry dose capped at SoakMaxDose")
 
 section("trend_hold_when_humidity_rising")
 
 # RawEma fell over the window (humidity rising) -> hold, no watering, timer re-armed
 P1.DryEmaHistory = list()
 P1.DryEmaHistory.push({'ms': 0, 'ema': 900})
-P1.DryDailyTicks = list()
+P1.DryDailyVol = list()
 P1.DrySoakDose = 100
 wp1.SoilSensors[0].RawEma = 850
 SIM['millis'] = 24*60*60*1000
@@ -98,11 +101,11 @@ assert_eq(st_h['delay'], 7200*1000, "soil check re-armed after SoakInterval")
 
 section("trend_dailycap_pauses")
 
-# more than SoakDailyCap (1500 ticks) already flooded in the last 24h -> pause
+# more than SoakDailyCap (220 ml) already flooded in the last 24h -> pause
 P1.DryEmaHistory = list()
 P1.DryEmaHistory.push({'ms': 0, 'ema': 900})
-P1.DryDailyTicks = list()
-P1.DryDailyTicks.push({'ms': 0, 'ticks': 1500})
+P1.DryDailyVol = list()
+P1.DryDailyVol.push({'ms': 0, 'vol': 300})
 P1.DrySoakDose = 100
 wp1.SoilSensors[0].RawEma = 900
 SIM['millis'] = 24*60*60*1000
@@ -116,7 +119,7 @@ section("trend_stop_below_dry_threshold")
 # RawEma dropped below StopRaw (DryThreshold 820) -> soak finished, session closed
 P1.DryEmaHistory = list()
 P1.DryEmaHistory.push({'ms': 0, 'ema': 900})
-P1.DryDailyTicks = list()
+P1.DryDailyVol = list()
 P1.AutofloodInProcess = true
 wp1.SoilSensors[0].RawEma = 800
 SIM['millis'] = 24*60*60*1000
@@ -155,7 +158,7 @@ SIM['cmds'] = list()
 SIM['cmnds']['DrySoak']('DrySoak', 0, 'start', '')
 assert_true(P1.Preset != nil && P1.Preset.Type == 'dry', "start forces dry preset")
 assert_true(cmds_include("Power1 1"), "start floods")
-assert_eq(P1.PlannedFlood, 100, "manual dry soak uses start dose")
+assert_eq(P1.PlannedFlood, 15, "manual dry soak uses start dose")
 P1._drysoak_end()
 
 section("dry_threshold_restored_after_reboot")

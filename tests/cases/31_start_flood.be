@@ -17,7 +17,7 @@ wp1.SoilSensors[0].RawEma = 850
 SIM['cmds'] = list()
 wp1.plants[0].PlannedFlood = nil
 wp1.plants[0].start_flood()
-assert_eq(wp1.plants[0].PlannedFlood, 200, "planned dose defaults to Counter1FloodDefault")
+assert_eq(wp1.plants[0].PlannedFlood, 30, "planned dose defaults to Counter1FloodDefault (ml)")
 assert_true(cmds_include("Power1 1"), "pump commanded ON")
 
 section("start_flood_uses_prev_estimate")

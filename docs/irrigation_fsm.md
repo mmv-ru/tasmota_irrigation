@@ -79,9 +79,9 @@ flowchart TD
         RON_WET -- да --> RON_ABORT["Power{Num} 0 — отмена, помпа не запускается"]
         RON_ABORT --> EV_PW_OFF
         RON_WET -- нет --> RON_TELE["TelePeriod 10 (быстрая телеметрия), PauseSoilMaxStat=true"]
-        RON_TELE --> RON_CNT["Counter1BeforeStart = счётчик до старта"]
+        RON_TELE --> RON_CNT["Counter1BeforeStartTicks = счётчик до старта (тики)"]
         RON_CNT --> RON_CANCEL["отменить таймер ID_ENDFASTTELE (не дать вернуть TelePeriod в 300)"]
-        RON_CANCEL --> RON_RULE["FinishRule = COUNTER#C1 >= Counter1BeforeStart+Backflow+PlannedFlood"]
+        RON_CANCEL --> RON_RULE["FinishRule = COUNTER#C1 >= Counter1BeforeStartTicks + ticks(Backflow) + ticks(доза); доза/backflow в мл переводятся в тики через Plant.ticks() (ml / FlowScale)"]
         RON_RULE --> RON_ADD["add_rule(FinishRule → Plant.rule_flooded)"]
         RON_ADD --> RON_RATE["FlowSensor.RateMeasuring = true (замер расхода)"]
         RON_RATE --> PUMPS_END["Помпа качает, ждём превышения счётчика / PulseTime"]
@@ -99,16 +99,16 @@ flowchart TD
         RULE_OFF_START --> ROFF_CNT["прочитать сенсоры: Counter1 = COUNTER#C1"]
         ROFF_CNT --> ROFF_MILLIS["PumpRunMillis = now − PumpStartMillis (с защитой)"]
         ROFF_MILLIS --> ROFF_RULE["снять FinishRule"]
-        ROFF_RULE --> ROFF_DELTA["CounterDelta = _compensate_backflow(Counter1) — вычесть backflow из счётчика и дельты"]
+        ROFF_RULE --> ROFF_DELTA["CounterDeltaTicks = _compensate_backflow(Counter1) — вычесть backflow из счётчика и дельты; backflow задан в мл, в тики переводится ticks(Backflow)"]
         ROFF_DELTA --> ROFF_RATE["FlowSensor.RateMeasuring = false"]
-        ROFF_RATE --> ROFF_COMP{"CounterDelta > Backflow?"}
-        ROFF_COMP -- да --> ROFF_BCK["counter1 preset (С1−Backflow); CounterDelta −= Backflow"]
-        ROFF_COMP -- нет --> ROFF_ZERO["counter1 preset (С1BeforeStart); CounterDelta = 0"]
-        ROFF_BCK --> ROFF_VOL{"CounterDelta > 0 (вода реально прошла)?"}
+        ROFF_RATE --> ROFF_COMP{"CounterDeltaTicks > BackflowTicks?"}
+        ROFF_COMP -- да --> ROFF_BCK["counter1 preset (С1−BackflowTicks); CounterDeltaTicks −= BackflowTicks"]
+        ROFF_COMP -- нет --> ROFF_ZERO["counter1 preset (С1BeforeStartTicks); CounterDeltaTicks = 0"]
+        ROFF_BCK --> ROFF_VOL{"CounterDeltaTicks > 0 (вода реально прошла)?"}
         ROFF_ZERO --> ROFF_VOL
-        ROFF_VOL -- да --> ROFF_REC["_record_flood(CounterDelta): LastFloodTime=now, LastFloodVol += CounterDelta, LastFlowRate = доза/длительность"]
+        ROFF_VOL -- да --> ROFF_REC["_record_flood(CounterDeltaTicks): LastFloodTime=now, LastFloodVol += CounterDeltaTicks × FlowScale (мл), LastFlowRate = мл·60000/длительность"]
         ROFF_REC --> ROFF_DRY{"Preset.Type == 'dry'?"}
-        ROFF_DRY -- да --> ROFF_DRYT["DryDailyTicks.push({ms, ticks}) — накопление для DailyCap; flood_delay = SoakInterval"]
+        ROFF_DRY -- да --> ROFF_DRYT["DryDailyVol.push({ms, vol}) — в мл, накопление для DailyCap; flood_delay = SoakInterval"]
         ROFF_DRY -- нет --> ROFF_CAP{"LastFloodVol > MaxFlood?"}
         ROFF_CAP -- да --> ROFF_END["remove_timer + _autoflood_end() — сессия закрыта капом объёма"]
         ROFF_CAP -- нет --> ROFF_2["flood_delay = 2ч"]
@@ -138,7 +138,7 @@ flowchart TD
         TSL_TREND --> DT_STOP{"RawEma < StopRaw (DryThreshold)?"}
         DT_STOP -- да --> DT_END["_drysoak_end(): AutofloodInProcess=false, Preset=nil, DrySoakDose=nil (Prev* не тронуты)"]
         DT_STOP -- нет --> DT_HIST["DryEmaHistory.push({ms, ema}); prune до SoakTrendWindow"]
-        DT_HIST --> DT_CAP{"сумма DryDailyTicks за 24ч >= SoakDailyCap?"}
+        DT_HIST --> DT_CAP{"сумма DryDailyVol за 24ч (мл) >= SoakDailyCap?"}
         DT_CAP -- да --> DT_PAUSE["pause: _rearm_soil_check(SoakInterval)"]
         DT_CAP -- нет --> DT_WIN{"now − старт_окна < SoakTrendWindow (окно не заполнено)?"}
         DT_WIN -- да --> DT_REP["repeat: request_repeat(plant) → start_flood() — та же доза"]
@@ -204,19 +204,20 @@ flowchart TD
 | `start_session()` | Новая сессия (вход со sweep): 0) `_pick_preset()` (ДО проверки `_stats_enabled()` — dry не пишет статы), 1) при normal `Store.save_batch_entries(self._stats_batch())` (Prev*+estimate, один save), 2) init сессии, 3) `start_flood()` |
 | `start_flood()` | Единая точка запуска (сессия/повтор/кнопка): pick пресета при `nil`, dry-check `RawEma > RawWet` (иначе skip), `PlannedFlood = Preset.dose()`, `Power{Num} 1` |
 | `planned_dose()` | Эффективная доза для пресета `normal`: `estimateflood()` если оценка валидна, иначе `Counter1FloodDefault` |
-| `estimateflood()` | Линейная экстраполяция на **Prev*** (`PrevSoilHPreFlood − PrevSoilMaxHymidity`, `PrevFloodedVol`); <100 или исключение → nil (fallback на default) |
+| `estimateflood()` | Линейная экстраполяция на **Prev*** (`PrevSoilHPreFlood − PrevSoilMaxHymidity`, `PrevFloodedVol`); <15 мл или исключение → nil (fallback на default) |
 | `_pick_preset()` | Выбор стратегии: `RawEma > DryThreshold` → `FloodPreset('dry', Store, Prefix)`; иначе `FloodPreset('normal', ...)`. Ставит `DrySoakDose`/`DrySoakStartMillis` для dry |
 | `_stats_batch()` / `max_batch()` | Пары `[P{Num}ключ, value]` для `save_batch_entries`: старт сессии (7) / подтверждение Max (2) |
 | `rule_power(value)` | Диспетчер события канала: `State` 1/0 → `water_on()`/`water_off()`; неизвестный — WARNING |
 | `water_on()` | Старт: защита от мокрой почвы, `FinishRule = COUNTER#C1 >= ...` (общий счётчик), быстрая телеметрия, RateMeasuring |
 | `water_off()` | Стоп: читает Counter1, `_compensate_backflow()`, затем `_record_flood()` (вода прошла) или `_end_session_no_water()` (нет воды), таймер возврата TelePeriod |
-| `_compensate_backflow(Counter1)` | Вычитает backflow из счётчика (preset `counter1`) и из дельты, возвращает нетто-объём |
-| `_record_flood(CounterDelta)` | Фиксирует дозу: `LastFloodVol += delta`, `LastFloodTime=now`, `LastFlowRate = CounterDelta*60000/PumpRunMillis` (in-memory avg ml/min, guard на `PumpRunMillis` set/>0, иначе nil); при dry — пушит `{ms, ticks}` в `DryDailyTicks` (каденс SoakInterval); при normal и `LastFloodVol > MaxFlood` — `remove_timer` + `_autoflood_end()` (сессия закрыта капом объёма, таймер проверки не ставится); иначе таймер проверки 2ч, пере-арм `ID_SOILTRANSITION_AFTERFLOOD_P{Num}` |
+| `ticks(vol_ml)` | Граница C1: перевод объёма мл → тики (`round(ml / FlowScale)`); nil/<=0 scale → тождество (int); nil объём → nil. Используется в `water_on` (FinishRule), `_compensate_backflow`, `json_append` (телявые объёмы экспортируются в тиках) |
+| `_compensate_backflow(Counter1)` | Вычитает backflow (мл → тики через `ticks()`) из счётчика (preset `counter1`) и из дельты, возвращает нетто-объём (тики) |
+| `_record_flood(CounterDeltaTicks)` | Фиксирует дозу: `DeltaMl = CounterDeltaTicks × FlowScale` (guard на scale), `LastFloodVol += DeltaMl`, `LastFloodTime=now`, `LastFlowRate = DeltaMl*60000/PumpRunMillis` (настоящие мл/мин, guard на `PumpRunMillis` set/>0, иначе nil); при dry — пушит `{ms, vol}` в `DryDailyVol` (каденс SoakInterval); при normal и `LastFloodVol > MaxFlood` — `remove_timer` + `_autoflood_end()` (сессия закрыта капом объёма, таймер проверки не ставится); иначе таймер проверки 2ч, пере-арм `ID_SOILTRANSITION_AFTERFLOOD_P{Num}` |
 | `_end_session_no_water()` | Помпа работала без воды: закрывает сессию без таймера проверки почвы |
 | `rule_flooded()` | Триггер лимита: счётчик достиг порога → `Power{Num} 0` |
 | `timer_soil_transition_after_flooded()` | Диспетчер оценки результата: при `Preset != nil` → `Preset.evaluate()`, иначе классика `_escalate_evaluate()`; 'repeat' → `Owner.request_repeat(self)` |
 | `_autoflood_end()` | Завершение: сброс флагов/пресета, опциональный отложенный сброс счётчика, восстановление слежения за Max |
-| `_drysoak_end()` | Завершение dry-сессии: сброс `AutofloodInProcess`, `Preset`, `DrySoakDose`, `DrySoakStartMillis`, `DryEmaHistory`, `DryDailyTicks` (Prev* не пишет) |
+| `_drysoak_end()` | Завершение dry-сессии: сброс `AutofloodInProcess`, `Preset`, `DrySoakDose`, `DrySoakStartMillis`, `DryEmaHistory`, `DryDailyVol` (Prev* не пишет) |
 
 ### FloodPreset (стратегия сессии)
 | Метод | Роль |
@@ -233,10 +234,10 @@ flowchart TD
 | `PauseSoilMaxStat` | true — слежение за минимумом влажности приостановлено (во время пролива и до завершения сессии) |
 | `Preset` | активная стратегия сессии канала (`FloodPreset` 'dry'/'normal'); ставится `_pick_preset()`, снимается `_autoflood_end()`/`_drysoak_end()` |
 | `DryThreshold` | RAW-порог переключения на сухую замочку (persist `P{Num}DryThreshold`, дефолт 820); он же `StopRaw` пресета dry |
-| `DrySoakDose` | адаптивная доза dry-замочки: стартует с `SoakStartDose` (100), растёт `×SoakDoseGrow` (кап `SoakMaxDose` 2000) |
+| `DrySoakDose` | адаптивная доза dry-замочки (мл): стартует с `SoakStartDose` (15), растёт `×SoakDoseGrow` (кап `SoakMaxDose` 300 мл) |
 | `DrySoakStartMillis` | момент старта текущей dry-замочки (для отчёта команды `DrySoak`) |
 | `DryEmaHistory` | in-memory кольцо `{ms, ema}` тренда за `SoakTrendWindow` (24ч), не персистится |
-| `DryDailyTicks` | in-memory кольцо `{ms, ticks}` объёмов за 24ч для `SoakDailyCap` (1500), не персистится |
+| `DryDailyVol` | in-memory кольцо `{ms, vol}` объёмов в мл за 24ч для `SoakDailyCap` (220 мл), не персистится |
 | `Counter1ResetPostpone` | запрошен сброс счётчика, но отложен до конца сессии канала |
 | `PlannedFlood` | запланированный объём дозы (мл) для текущего запуска: `Preset.dose()`; выставляется внутри `start_flood()` (пока `RawEma > RawWet`) |
 | `FinishRule` | активное правило `COUNTER#C1>=...` канала; снимается при остановке помпы |
@@ -282,7 +283,8 @@ timer_soil_transition_after_flooded →
 
 Использованные сокращения:
 - **RAW** — сырое значение почвенного датчика (ADC, приблизительно 0..4095); суше — выше (`IsDry()`: `Raw >= RawDry`, `IsWet()`: `Raw <= RawWet`).
-- **тик C1** — импульс расходомера на общем счётчике Tasmota `COUNTER#C1`. Объёмы-дозы хранятся в тиках (НЕ домножаются на `FlowScale`); «мл» получаются через `FlowScale` (мл/тик) только при отображении/калибровке.
+- **тик C1** — импульс расходомера на общем счётчике Tasmota `COUNTER#C1`.
+- **мл (единица канона)** — **внутренние объёмы-дозы хранятся в мл** (сессия, дозы, капы: `LastFloodVol`, `PrevFloodedVol`, `MaxFlood`, `Counter1FloodDefault`, `Counter1Backflow`, `SoakStartDose`/`SoakDailyCap`/`SoakMaxDose`, `DryDailyVol`). В тики переводится только на границе C1: правила `COUNTER#C1 >= …` и вычитание backflow — через `Plant.ticks()` (`ml / FlowScale`); в телеметрии `json_append()` мл-объёмы экспортируются **обратно в тики** (`ticks(ml)`) — контракт InfluxDB не меняется.
 
 ### Глобальные (Watering, общие для всех каналов)
 
@@ -298,9 +300,9 @@ timer_soil_transition_after_flooded →
 | Параметр | Store | Default | Размерность | Описание |
 |---|---|---|---|---|
 | `MaxPumpRun` | нет | 60 | с | кап времени работы помпы → `PulseTime{Num}` (аппаратный предохранитель этого FSM) |
-| `MaxFlood` | нет | 2000 | тик C1 | кап объёма сессии: `LastFloodVol > MaxFlood` → сессия закрывается; одновременно кап эскалации `Counter1FloodDefault` |
-| `Counter1FloodDefault` | нет | 200 | тик C1 | доза полива по умолчанию (fallback, когда `estimateflood()` вернул nil); при повторной заливке растёт ×1.2 до `MaxFlood` в RAM и теряется при рестарте |
-| `Counter1Backflow` | нет | 0 | тик C1 | компенсация обратного потока (для труб без обратного клапана, в коде закомментирован пример 133) |
+| `MaxFlood` | нет | 300 | мл | кап объёма сессии: `LastFloodVol > MaxFlood` → сессия закрывается; одновременно кап эскалации `Counter1FloodDefault` |
+| `Counter1FloodDefault` | нет | 30 | мл | доза полива по умолчанию (fallback, когда `estimateflood()` вернул nil); при повторной заливке растёт ×1.2 до `MaxFlood` в RAM и теряется при рестарте |
+| `Counter1Backflow` | нет | 0 | мл | компенсация обратного потока (для труб без обратного клапана, в коде закомментирован пример 19 мл) |
 
 ### Per-Plant: персистятся под префиксом `P{Num}`
 
@@ -311,28 +313,32 @@ timer_soil_transition_after_flooded →
 | `TargetDry` → `RawDry` | `SoilSensor` | `P{Num}TargetDry` | 800 | RAW | уровень «сухо»: `Raw >= RawDry` → `IsDry()` (претендент на полив) |
 | `TargetWet` → `RawWet` | `SoilSensor` | `P{Num}TargetWet` | 760 | RAW | уровень «влажно»: `Raw <= RawWet` → `IsWet()` (стоп-критерий нормального пресета и вход `estimateflood()`) |
 | `DryThreshold` | `Plant` | `P{Num}DryThreshold` | 820 | RAW | выбор пресета: `RawEma > DryThreshold` → dry soak; он же `StopRaw` (выход из замочки) |
-| `SoakStartDose` | `Plant` | `P{Num}SoakStartDose` | 100 | тик C1 | стартовая доза сухой замочки |
+| `SoakStartDose` | `Plant` | `P{Num}SoakStartDose` | 15 | мл | стартовая доза сухой замочки |
 | `SoakInterval` | `Plant` | `P{Num}SoakInterval` | 7200 | с | каденс сухой замочки (пересдача/пауза) |
 | `SoakTrendWindow` | `Plant` | `P{Num}SoakTrendWindow` | 86400 | с | окно тренда `RawEma` для адаптации дозы |
 | `SoakDoseGrow` | `Plant` | `P{Num}SoakDoseGrow` | 1.2 | множитель | рост дозы замочки при отсутствии отклика |
-| `SoakDailyCap` | `Plant` | `P{Num}SoakDailyCap` | 1500 | тик C1 | суточный лимит объёма замочки |
-| `SoakMaxDose` | `Plant` | `P{Num}SoakMaxDose` | 2000 | тик C1 | кап дозы замочки |
-| `LastFloodVol` | `Plant` | `P{Num}LastFloodVol` | 0 | тик C1 | накопленный объём текущей сессии; на старте следующей архивируется в `PrevFloodedVol` |
+| `SoakDailyCap` | `Plant` | `P{Num}SoakDailyCap` | 220 | мл | суточный лимит объёма замочки |
+| `SoakMaxDose` | `Plant` | `P{Num}SoakMaxDose` | 300 | мл | кап дозы замочки |
+| `LastFloodVol` | `Plant` | `P{Num}LastFloodVol` | 0 | мл | накопленный объём текущей сессии; на старте следующей архивируется в `PrevFloodedVol` |
 | `SoilHPreFlood` | `Plant` | `P{Num}SoilHPreFlood` | nil | RAW | EMA до полива (текущая сессия) |
 | `SoilMaxHymidity` / `SoilMaxHymidityTime` | `Plant` | `P{Num}SoilMaxHymidity` / `…Time` | nil | RAW / timestamp | максимум влажности после полива (текущая сессия) |
 | `PrevSoilHPreFlood` | `Plant` | `P{Num}PrevSoilHPreFlood` | nil | RAW | вход `estimateflood()`: EMA до прошлой сессии |
 | `PrevSoilMaxHymidity` | `Plant` | `P{Num}PrevSoilMaxHymidity` | nil | RAW | вход `estimateflood()`: макс. влажность после прошлой сессии |
-| `PrevFloodedVol` | `Plant` | `P{Num}PrevFloodedVol` | nil | тик C1 | вход `estimateflood()`: объём прошлой сессии |
+| `PrevFloodedVol` | `Plant` | `P{Num}PrevFloodedVol` | nil | мл | вход `estimateflood()`: объём прошлой сессии |
 
 ### `estimateflood()` и планирование дозы
 
 - **Формула** (watering.be `Plant.estimateflood()`):
   `EstimatedFlood = PrevFloodedVol × (RawEma − RawWet) / (PrevSoilHPreFlood − PrevSoilMaxHymidity)`.
 - Использует персистенные `Prev*` (выше) и динамику: `RawEma` (in-memory EMA, `EMAN=600`, smoothing `k=2/(N+1)`) и `RawWet` (`P{Num}TargetWet`).
-- Если `EstimatedFlood < 100` или исключение/отсутствие данных → `nil` → `planned_dose()` возвращает `Counter1FloodDefault`.
+- Если `EstimatedFlood < 15` (мл) или исключение/отсутствие данных → `nil` → `planned_dose()` возвращает `Counter1FloodDefault`.
 - Пресет `normal` (выбран когда `RawEma <= DryThreshold`): доза = `estimateflood()` либо default; повторный прогон при недополиве — `Counter1FloodDefault × 1.2` (кап `MaxFlood`).
 - Пресет `dry` (сухая замочка, `RawEma > DryThreshold`): доза = `DrySoakDose` (стартует с `SoakStartDose`, адаптируется `SoakTrendWindow`/`SoakDoseGrow`/`SoakMaxDose`, лимит `SoakDailyCap`/24ч), `estimateflood()`/`Prev*` НЕ используются (`WriteStats=false`).
 
 ### Сессионные и служебные поля (не персистятся)
 
-`PumpStartMillis`, `PumpRunMillis`, `Counter1BeforeStart`, `FinishRule`, `PlannedFlood`, `AutofloodInProcess`, `ServiceRun`, `ServiceResult`, `LastFlowRate` (фактически «тиков C1/мин», комментарий «ml/min» в коде неточен), `DrySoakDose`, `DrySoakStartMillis`, `DryEmaHistory`, `DryDailyTicks`, `PauseSoilMaxStat` — живут только в RAM и обнуляются при рестарте устройства.
+`PumpStartMillis`, `PumpRunMillis`, `Counter1BeforeStartTicks`, `FinishRule`, `PlannedFlood`, `AutofloodInProcess`, `ServiceRun`, `ServiceResult`, `LastFlowRate` (настоящие мл/мин: `DeltaMl×60000/PumpRunMillis`), `DrySoakDose`, `DrySoakStartMillis`, `DryEmaHistory`, `DryDailyVol`, `PauseSoilMaxStat` — живут только в RAM и обнуляются при рестарте устройства.
+
+### Миграция размерности (тики → мл)
+
+При переходе итерации «всё в тиках C1» в «мл — канон» персистенные значения не переносятся как есть: `Watering._migrate_units(FlowScale)` один раз (маркер `UnitsV2`, ключ с политикой `immediate`) пересчитывает **только реально сохранённые** ключи `P{Num}SoakStartDose/SoakDailyCap/SoakMaxDose/LastFloodVol/PrevFloodedVol` по формуле `round(тик × FlowScale)` (дефолт шкалы `0.1449`, clamp на nil/<=0). Неперсистенные ключи сохраняют уже-мл дефолты реестра. На устройстве с `Scale=0.1408`: `SoakStartDose 100 → 14`, `SoakDailyCap 1500 → 211`, `SoakMaxDose 2000 → 282` мл.

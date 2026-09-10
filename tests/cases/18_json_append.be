@@ -36,9 +36,12 @@ section("json_append_fields")
 var obj = json.load(body)
 assert_eq(obj['Soil1Raw'], 850, "Soil1Raw from A1")
 assert_eq(obj['Soil2RawEma'], int(wp1.SoilSensors[1].RawEma), "Soil2RawEma from A2")
-assert_eq(obj['LastFloodSessionVol'], 350, "LastFloodSessionVol from var")
+# Telemetry keeps the historical C1-tick contract: internal ml volumes are
+# converted back to ticks on export. Default calibration 0.1449 ml/tick ->
+# 350 ml = 2415 ticks, 250 ml = 1725 ticks.
+assert_eq(obj['LastFloodSessionVol'], 2415, "LastFloodSessionVol exported as ticks (350 ml/0.1449)")
 assert_eq(obj['LastSoilMaxHymidity'], nil, "max nil while unconfirmed")
-assert_eq(obj['PrevFloodedVol'], 250, "PrevFloodedVol archived")
+assert_eq(obj['PrevFloodedVol'], 1725, "PrevFloodedVol exported as ticks (250 ml/0.1449)")
 assert_eq(obj['PumpRunMillis'], 42000, "PumpRunMillis")
 assert_eq(obj['SoilHPreFlood'], 900, "SoilHPreFlood")
 

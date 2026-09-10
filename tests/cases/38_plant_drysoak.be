@@ -6,6 +6,8 @@ section("dry_preset_on_second_channel")
 
 var P1 = wp1.plants[0]
 var P2 = wp1.plants[1]
+# Clean 2.0 ml/tick calibration: 100 ticks = 200 ml.
+wp1.FlowSensors[0].Scale = 2.0
 # isolate channel 2: wet channel 1 so the round-robin sweep skips it
 SIM['sensors']['ANALOG']['A1'] = 740
 SIM['sensors']['ANALOG']['A2'] = 900
@@ -18,7 +20,7 @@ SIM['cmds'] = list()
 wp1.auto_flood()
 assert_eq(P2.AutofloodInProcess, true, "channel 2 session started")
 assert_eq(P2.Preset.Type, 'dry', "dry preset on channel 2")
-assert_eq(P2.DrySoakDose, 100, "channel 2 soak start dose")
+assert_eq(P2.DrySoakDose, 15, "channel 2 soak start dose (ml)")
 assert_true(cmds_include("Power2 1"), "Power2 commanded")
 assert_eq(persist.saves, 0, "dry session does not persist prev-stats")
 assert_true(!persist.has('P2PrevFloodedVol'), "no Prev stats for channel 2 dry session")
@@ -28,8 +30,8 @@ section("channel2_dry_cadence")
 SIM['millis'] = 0
 SIM['sensors']['COUNTER']['C1'] = 100
 wp1.rule_power({'State': 0}, 'POWER2')
-assert_eq(P2.LastFloodVol, 100, "channel 2 volume accumulated")
-assert_eq(P2.DryDailyTicks.size(), 1, "daily tick recorded per channel")
+assert_eq(P2.LastFloodVol, 200, "channel 2 volume accumulated (100 ticks x 2.0 ml)")
+assert_eq(P2.DryDailyVol.size(), 1, "daily volume recorded per channel")
 var st = SIM['timers'].find("ID_SOILTRANSITION_AFTERFLOOD_P2", nil)
 assert_true(st != nil, "channel 2 soil check timer armed")
 assert_eq(st['delay'], 7200*1000, "channel 2 soak interval (2h)")
@@ -39,7 +41,7 @@ section("per_channel_dry_params")
 # dry-soak params are per channel: editing channel 1 leaves channel 2 alone
 wp1.Store.set('P1SoakStartDose', 200)
 assert_eq(wp1.Store.get('P1SoakStartDose'), 200, "P1 soak dose updated")
-assert_eq(wp1.Store.get('P2SoakStartDose'), '100', "P2 soak dose independent")
+assert_eq(wp1.Store.get('P2SoakStartDose'), '15', "P2 soak dose independent")
 wp1.Store.set('P2DryThreshold', 900)
 assert_eq(wp1.Store.get('P1DryThreshold'), '820', "P1 DryThreshold independent")
 

@@ -135,16 +135,16 @@ wp1.rule_power({'State': 1}, 'POWER1')
 assert_eq(P1.WaterIsOn(), true, "service pump relay on")
 assert_eq(P1.ServiceRun, true, "plant flagged as a service run")
 assert_eq(wp1.ServiceResult, nil, "no result before the stop")
-assert_eq(P1.Counter1BeforeStart, 500, "shared counter snapshotted at start")
+assert_eq(P1.Counter1BeforeStartTicks, 500, "shared counter snapshotted at start")
 assert_true(cmds_include("TelePeriod 10"), "fast telemetry during the service run")
 assert_eq(P1.FinishRule, nil, "no counter finish rule for service runs")
 assert_true(SIM['timers'].find("ID_ENDFASTTELE") == nil, "no fast-tele reset timer while running")
 
 # a repeated start while already running is ignored (counter not re-snapped)
-var csnap = P1.Counter1BeforeStart
+var csnap = P1.Counter1BeforeStartTicks
 P1.water_on()
 assert_eq(P1.ServiceRun, true, "service run survives a repeated start")
-assert_eq(P1.Counter1BeforeStart, csnap, "counter snapshot not re-taken")
+assert_eq(P1.Counter1BeforeStartTicks, csnap, "counter snapshot not re-taken")
 
 # stop reports the run
 SIM['sensors']['COUNTER']['C1'] = 750
@@ -405,7 +405,7 @@ assert_true(string.find(pch2, "Требуется перезагрузка") >= 
 assert_true(string.find(pch2, "name='restart' value='1'") >= 0, "restart button offered after the change")
 assert_eq(Sx.get('P3TargetDry'), "800", "channel 3 params kept after shrinking to 2")
 assert_eq(Sx.get('P4TargetWet'), "760", "channel 4 params kept after shrinking to 2")
-assert_eq(Sx.get('P3SoakDailyCap'), "1500", "soak param of a disabled channel kept")
+assert_eq(Sx.get('P3SoakDailyCap'), "220", "soak param of a disabled channel kept")
 assert_true(Sx.Meta.find('P4PrevFloodedVol') != nil, "P4 keys still registered after shrinking")
 
 section("service_page_channels_restart")

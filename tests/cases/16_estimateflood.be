@@ -18,11 +18,12 @@ assert_eq(est, 218, "linear estimate rounded down")
 
 section("estimate_nil_for_small_dose")
 
-# Estimated < 100 -> returns nil (estimate unusable, fall back to default),
+# Estimated < 15 ml -> returns nil (estimate unusable, fall back to default),
 # not 0 (would falsely mean "no flooding needed")
 wp1.plants[0].PrevFloodedVol = 50
-wp1.plants[0].PrevSoilMaxHymidity = 850
-wp1.SoilSensors[0].RawEma = 840  # CurDRaw=40, LastFloodDRaw=50 -> 50*40/50=40 < 100
+wp1.plants[0].PrevSoilHPreFlood = 900
+wp1.plants[0].PrevSoilMaxHymidity = 810
+wp1.SoilSensors[0].RawEma = 825  # CurDRaw=25, LastFloodDRaw=90 -> 50*25/90=13.9 < 15
 assert_eq(wp1.plants[0].estimateflood(), nil, "small needed dose -> nil")
 
 section("estimate_nil_on_exception")

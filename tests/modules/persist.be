@@ -14,7 +14,13 @@ class Persist
         self._p['Channels'] = '4'
         self.saves = 0
     end
-    def find(k, d) return self._p.find(k, d) end
+    def find(k, d)
+        # A nil-stored value is treated as absent (introspect.set(k, nil) removes
+        # the key on the real device), so callers fall back to their default.
+        var v = self._p.find(k, nil)
+        if v == nil return d end
+        return v
+    end
     def has(k) return self._p.find(k) != nil end
     def member(k) return self._p.find(k) end
     def setmember(k, v) self._p[k] = v end

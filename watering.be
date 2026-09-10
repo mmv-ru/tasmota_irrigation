@@ -472,9 +472,9 @@ class PersistStore
         # iteration-1 flat registry; nothing is global anymore.
         var keys = {
             'TargetDry': '800', 'TargetWet': '760', 'DryThreshold': '820',
-            'SoakStartDose': '100', 'SoakInterval': '7200',
+            'SoakStartDose': '15', 'SoakInterval': '7200',
             'SoakTrendWindow': '86400', 'SoakDoseGrow': '1.2',
-            'SoakDailyCap': '1500', 'SoakMaxDose': '2000',
+            'SoakDailyCap': '220', 'SoakMaxDose': '300',
             'LastFloodVol': '0',
             'SoilHPreFlood': nil,
             'SoilMaxHymidity': nil, 'SoilMaxHymidityTime': nil,
@@ -614,13 +614,15 @@ class FloodPreset
         self.Type = ptype
         self.Prefix = prefix != nil ? prefix : ''
         if ptype == 'dry'
-            self.StartDose = int(store.get(self.Prefix .. 'SoakStartDose'))
+            # Soak volumes are ml (StartDose/DailyCap/MaxDose); raw/interval
+            # knobs stay integers in their own units.
+            self.StartDose = real(store.get(self.Prefix .. 'SoakStartDose'))
             self.AdaptMode = 'trend'
             self.StopRaw = int(store.get(self.Prefix .. 'DryThreshold'))
             self.WindowSec = int(store.get(self.Prefix .. 'SoakTrendWindow'))
             self.DoseGrow = real(store.get(self.Prefix .. 'SoakDoseGrow'))
-            self.DailyCap = int(store.get(self.Prefix .. 'SoakDailyCap'))
-            self.MaxDose = int(store.get(self.Prefix .. 'SoakMaxDose'))
+            self.DailyCap = real(store.get(self.Prefix .. 'SoakDailyCap'))
+            self.MaxDose = real(store.get(self.Prefix .. 'SoakMaxDose'))
             self.WriteStats = false
         else
             self.StartDose = 0
@@ -703,17 +705,17 @@ class FloodPreset
     end
 
     def _cap_reached(plant, now)
-        # Sum ticks flooded in the last 24h from the DryDailyTicks ring.
+        # Sum flooded volume in the last 24h from the DryDailyVol ring (ml).
         var capMs = 24*60*60*1000
-        var sum = 0
+        var sum = 0.0
         var i = 0
-        while i < plant.DryDailyTicks.size()
-            var t = plant.DryDailyTicks[i]
+        while i < plant.DryDailyVol.size()
+            var t = plant.DryDailyVol[i]
             if now - t['ms'] <= capMs
-                sum += int(t['ticks'])
+                sum += real(t['vol'])
                 i += 1
             else
-                plant.DryDailyTicks.remove(i)
+                plant.DryDailyVol.remove(i)
             end
         end
         return sum >= self.DailyCap
@@ -737,7 +739,7 @@ class Plant
     var MaxPumpRun
     var PumpStartMillis
     var PumpRunMillis
-    var Counter1BeforeStart
+    var Counter1BeforeStartTicks
     var Counter1Backflow
     var Counter1FloodDefault
     var MaxFlood
@@ -763,7 +765,7 @@ class Plant
     var DrySoakDose
     var DrySoakStartMillis
     var DryEmaHistory
-    var DryDailyTicks
+    var DryDailyVol
 
     def init(idx, owner)
         import introspect
@@ -785,16 +787,37 @@ class Plant
         end
         self.LastFloodVol = int(self.Store.get(self.Prefix .. 'LastFloodVol'))
         self.MaxPumpRun = 60
-        self.MaxFlood = 2000
-        # When pipes without check valve, backflow - water
-        # self.Counter1Backflow = 133
+        # Volumes are expressed in ml (the internal canonical unit); the C1
+        # counter stays in ticks and is converted at the border via ticks().
+        self.MaxFlood = 300
+        # When pipes without check valve, backflow - water in ml.
+        # self.Counter1Backflow = 19
         self.Counter1Backflow = 0
-        self.Counter1FloodDefault = 200
+        self.Counter1FloodDefault = 30
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
         self.ServiceRun = false
         self.Counter1ResetPostpone = false
-        self.Counter1BeforeStart = owner.FlowSensors[0].Raw
+        self.Counter1BeforeStartTicks = owner.FlowSensors[0].Raw
+    end
+
+    def ticks(vol_ml)
+        # C1-boundary conversion ml -> counter ticks (counter rules, backflow
+        # subtraction, telemetry export). The scale is the calibrated
+        # ml-per-tick coefficient; a missing/zero scale keeps ml as-is.
+        # Rounding is banker-safe for the expected positive values (int(x+0.5)).
+        if vol_ml == nil
+            return nil
+        end
+        var scale = self.Owner.FlowSensors[0].Scale
+        if scale == nil
+            return int(vol_ml)
+        end
+        var fscale = real(scale)
+        if fscale == nil || !(fscale > 0)
+            return int(vol_ml)
+        end
+        return int(real(vol_ml) / fscale + 0.5)
     end
 
     def _soil_timer_id()
@@ -830,7 +853,7 @@ class Plant
             self.ServiceRun = true
             self.Owner.ServiceResult = nil
             self.PumpStartMillis = tasmota.millis()
-            self.Counter1BeforeStart = self.Owner.FlowSensors[0].Raw
+self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
             tasmota.cmd("TelePeriod 10")
             tasmota.remove_timer("ID_ENDFASTTELE")
             self.Owner.FlowSensors[0].RateMeasuring = true
@@ -850,16 +873,16 @@ class Plant
         end
         tasmota.cmd("TelePeriod 10")
         self.PauseSoilMaxStat = true
-        self.Counter1BeforeStart = self.Owner.FlowSensors[0].Raw
+        self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
         print("Counter: ", self.Owner.FlowSensors[0].Raw)
         # A new flood while the previous "return to default teleperiod"
         # timer is still pending would let it kill this session's fast
         # telemetry mid-run. Cancel it here.
         tasmota.remove_timer("ID_ENDFASTTELE")
         if self.PlannedFlood
-            self.FinishRule = "COUNTER#C1>="..(self.Owner.FlowSensors[0].Raw+self.Counter1Backflow+self.PlannedFlood)
+            self.FinishRule = "COUNTER#C1>="..(self.Owner.FlowSensors[0].Raw + self.ticks(self.Counter1Backflow) + self.ticks(self.PlannedFlood))
         else
-            self.FinishRule = "COUNTER#C1>="..(self.Owner.FlowSensors[0].Raw+self.Counter1Backflow+self.Counter1FloodDefault)
+            self.FinishRule = "COUNTER#C1>="..(self.Owner.FlowSensors[0].Raw + self.ticks(self.Counter1Backflow) + self.ticks(self.Counter1FloodDefault))
         end
         print("Flooding FinishRule ", self.FinishRule)
         tasmota.add_rule(self.FinishRule, / v, t -> self.rule_flooded(v, t))
@@ -885,7 +908,7 @@ class Plant
             # normal finish path when this was a real flood.
             self.Owner.FlowSensors[0].RateMeasuring = false
             self.PumpRunMillis = tasmota.millis() - self.PumpStartMillis
-            var ticks = Counter1 - self.Counter1BeforeStart
+            var ticks = Counter1 - self.Counter1BeforeStartTicks
             if ticks < 0
                 ticks = 0
             end
@@ -908,11 +931,11 @@ class Plant
             print("Flooding FinishRule removed")
         end
         self.Owner.FlowSensors[0].RateMeasuring = false
-        var CounterDelta = self._compensate_backflow(Counter1)
+        var CounterDeltaTicks = self._compensate_backflow(Counter1)
         print("Counter compensated: ", Counter1)
-        print("Water flooded " .. CounterDelta)
-        if CounterDelta > 0
-            self._record_flood(CounterDelta)
+        print("Water flooded " .. CounterDeltaTicks)
+        if CounterDeltaTicks > 0
+            self._record_flood(CounterDeltaTicks)
         else
             self._end_session_no_water()
         end
@@ -922,35 +945,48 @@ class Plant
 
     def _compensate_backflow(Counter1)
         # Subtract backflow (water that returned through the pipe after pump
-        # stop) from the counters and from the session delta. Returns the net
-        # amount of water that actually left the pipe.
+        # stop) from the counters and from the session delta. The backflow is a
+        # volume in ml: converted to counter ticks via the C1 scale. Returns the
+        # net amount of water (ticks) that actually left the pipe.
         import string
-        var d = Counter1 - self.Counter1BeforeStart
-        if d > self.Counter1Backflow
-            tasmota.cmd(string.format("counter1 %i", Counter1 - self.Counter1Backflow))
-            return d - self.Counter1Backflow
+        var d = Counter1 - self.Counter1BeforeStartTicks
+        var BackflowTicks = self.ticks(self.Counter1Backflow)
+        if d > BackflowTicks
+            tasmota.cmd(string.format("counter1 %i", Counter1 - BackflowTicks))
+            return d - BackflowTicks
         else
             tasmota.cmd(string.format("counter1 %i", Counter1 - d))
             return 0
         end
     end
 
-    def _record_flood(CounterDelta)
+    def _record_flood(CounterDeltaTicks)
         # Record a finished flood dose and schedule the post-flood soil check.
+        # The session volume accumulates in ml (ticks x the calibrated C1 scale);
+        # the scale guard is shared with ticks() so both directions stay in sync.
         var flood_delay = 2*60*60*1000
         self.LastFloodTime = tasmota.rtc()['local']
-        self.LastFloodVol += CounterDelta
+        var scale = self.Owner.FlowSensors[0].Scale
+        if scale == nil
+            scale = 1.0
+        end
+        var fscale = real(scale)
+        if fscale == nil || !(fscale > 0)
+            fscale = 1.0
+        end
+        var DeltaMl = CounterDeltaTicks * fscale
+        self.LastFloodVol += DeltaMl
         # Average flow (ml/min) of this channel's last fill: dose volume over
         # its own pump-on duration. In-memory (not persisted).
         if self.PumpRunMillis != nil && self.PumpRunMillis > 0
-            self.LastFlowRate = (CounterDelta * 60000.0) / self.PumpRunMillis
+            self.LastFlowRate = (DeltaMl * 60000.0) / self.PumpRunMillis
         else
             self.LastFlowRate = nil
         end
         if self.Preset != nil && self.Preset.Type == 'dry'
-            # Dry soak cadence: fixed interval + daily volume tracking.
+            # Dry soak cadence: fixed interval + daily volume tracking (ml).
             flood_delay = int(self.Store.get(self.Prefix .. 'SoakInterval')) * 1000
-            self.DryDailyTicks.push({'ms': tasmota.millis(), 'ticks': CounterDelta})
+            self.DryDailyVol.push({'ms': tasmota.millis(), 'vol': DeltaMl})
         elif self.LastFloodVol > self.MaxFlood
             # Session volume cap (normal preset): accumulated water is enough,
             # close the session now instead of the removed 24h check delay. The
@@ -987,7 +1023,7 @@ class Plant
         self.DrySoakDose = nil
         self.DrySoakStartMillis = nil
         self.DryEmaHistory = list()
-        self.DryDailyTicks = list()
+        self.DryDailyVol = list()
         self.Preset = nil
     end
 
@@ -1004,7 +1040,7 @@ class Plant
             self.DrySoakDose = self.Preset.StartDose
             self.DrySoakStartMillis = tasmota.millis()
             self.DryEmaHistory = list()
-            self.DryDailyTicks = list()
+            self.DryDailyVol = list()
             print("Preset: dry soak (RawEma " .. self.SoilSensor.RawEma .. " > DryThreshold " .. self.DryThreshold .. ")")
         else
             self.Preset = FloodPreset('normal', self.Store, self.Prefix)
@@ -1153,9 +1189,9 @@ class Plant
             var LastFloodDRaw = self.PrevSoilHPreFlood - self.PrevSoilMaxHymidity
             var CurDRaw = self.SoilSensor.RawEma - self.SoilSensor.RawWet
             var EstimatedFlood = real(self.PrevFloodedVol)*CurDRaw/LastFloodDRaw
-            if EstimatedFlood < 100
-                # estimate too small/negative for a meaningful dose -> nil (use default),
-                # not 0 (would falsely mean "no flooding needed")
+            if EstimatedFlood < 15
+                # estimate too small for a meaningful dose (~15 ml) -> nil (use
+                # default), not 0 (would falsely mean "no flooding needed")
                 log("EstimatedFlood: " .. EstimatedFlood)
                 return nil
             else
@@ -1383,6 +1419,9 @@ class Watering
         # meter is shared by every channel, so the scale is a global key, not a
         # per-channel P{Num} one. Calibrated from the service page.
         self.Store.register('FlowScale', {'default': '0.1449', 'policy': 'debounced'})
+        # One-time units-upgrade marker: present once the iteration-1 C1-tick
+        # persisted values have been converted to ml (see _migrate_units).
+        self.Store.register('UnitsV2', {'default': '0', 'policy': 'immediate'})
         for i: 0..(MAX_CHANNELS - 1)
             self.Store.register_channel('P' + str(i + 1))
         end
@@ -1393,7 +1432,36 @@ class Watering
         elif self.NumChannels > MAX_CHANNELS
             self.NumChannels = MAX_CHANNELS
         end
+        # Upgrade persisted values from C1 ticks to ml BEFORE the plants read
+        # them (plants are created in init_sensors()).
+        self._migrate_units(real(self.Store.get('FlowScale')))
         self.init_sensors()
+    end
+
+    def _migrate_units(mscale)
+        # One-time upgrade of iteration-1 persisted values: config/volume keys
+        # and session stats were stored as C1 ticks. The internal canonical unit
+        # is ml, so stored ticks are converted (x scale) and the UnitsV2 marker
+        # makes the pass idempotent. Keys that were never persisted keep their
+        # (already ml) registered defaults - only real stored values convert.
+        if self.Store.get('UnitsV2') == '1'
+            return
+        end
+        if mscale == nil || !(mscale > 0)
+            mscale = 0.1449
+        end
+        for i: 0..(self.NumChannels - 1)
+            for k: ['SoakStartDose', 'SoakDailyCap', 'SoakMaxDose', 'LastFloodVol', 'PrevFloodedVol']
+                var key = 'P' + str(i + 1) .. k
+                if persist.find(key) != nil
+                    var v = real(self.Store.get(key))
+                    if v != nil
+                        self.Store.set(key, int(v * mscale + 0.5))
+                    end
+                end
+            end
+        end
+        self.Store.set('UnitsV2', '1')
     end
 
     def init_sensors()
@@ -1523,7 +1591,7 @@ class Watering
                 p0.DrySoakDose = p0.Preset.StartDose
                 p0.DrySoakStartMillis = tasmota.millis()
                 p0.DryEmaHistory = list()
-                p0.DryDailyTicks = list()
+                p0.DryDailyVol = list()
                 self.request_manual(p0)
                 tasmota.resp_cmnd_done()
                 return
@@ -1743,7 +1811,7 @@ class Watering
         jsp.push("t.style.left=x+'px';t.style.top=y+'px';};")
         jsp.push("document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);")
         jsp.push("window._wdSett=null;")
-        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose','m_soakdose_','dose']];")
+        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose (ml)','m_soakdose_','dose']];")
         jsp.push("window._wdSettingsOpen=function(a){")
         jsp.push("if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';var h='<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div><div class=\"bd\">';")
         jsp.push("for(var i=0;i<_wdF.length;i++){h+='<label>'+_wdF[i][1]+' <input id=\"'+_wdF[i][0]+'\" type=\"text\"></label>';}")
@@ -2054,7 +2122,7 @@ class Watering
                      "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' " ..
                      wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
                 num, ss.RawDry, ss.RawWet,
-                plant.DryThreshold, str(ss.Store.get(ss.Prefix .. 'SoakStartDose')))
+                plant.DryThreshold, str(int(real(ss.Store.get(ss.Prefix .. 'SoakStartDose')))))
             msg = msg .. wgrp("Датчик")
             # Values may be nil until the first sensor Update (unconnected
             # channels). Guard each one: show "nil" instead of crashing the
@@ -2105,8 +2173,8 @@ class Watering
                 end
             end
             msg += string.format(
-                      wrow("LastFloodVol", "%i") .. wrow("SoilHPreFlood", "%s"),
-                      plant.LastFloodVol, str(plant.SoilHPreFlood))
+                    wrow("LastFloodVol (мл)", "%i") .. wrow("SoilHPreFlood", "%s"),
+                    int(plant.LastFloodVol), str(plant.SoilHPreFlood))
             tasmota.web_send_decimal(msg)
             msg = wgrp("Предыдущий сеанс")
             import introspect
@@ -2284,10 +2352,10 @@ class Watering
                 'Soil1Hymidity': self.SoilSensors[0].Hymidity,
                 'Soil2RawEma': int(self.SoilSensors[1].RawEma),
                 'Soil2Hymidity': self.SoilSensors[1].Hymidity,
-                'LastFloodSessionVol': p0.LastFloodVol,
+                'LastFloodSessionVol': p0.ticks(p0.LastFloodVol),
                 'LastSoilMaxHymidity':  p0.SoilMaxHymidity,
                 'PrevSoilHPreFlood': p0.PrevSoilHPreFlood,
-                'PrevFloodedVol': p0.PrevFloodedVol,
+                'PrevFloodedVol': p0.ticks(p0.PrevFloodedVol),
                 'PrevSoilMaxHymidity': p0.PrevSoilMaxHymidity,
                 'PumpRunMillis': p0.PumpRunMillis,
                 'FlowSensorRate': self.FlowSensors[0].Rate,

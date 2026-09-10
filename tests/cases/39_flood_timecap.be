@@ -15,6 +15,8 @@ assert_eq(wp1.pulseencode(-5), 0, "negative cap clamped to 0")
 section("per_channel_relay_and_finish_rule")
 
 var P2 = wp1.plants[1]
+# Clean 2.0 ml/tick calibration: 30 ml default dose = 15 ticks, 150 ticks = 300 ml.
+wp1.FlowSensors[0].Scale = 2.0
 P2.DryThreshold = 9999
 SIM['sensors']['ANALOG']['A1'] = 740
 SIM['sensors']['ANALOG']['A2'] = 900
@@ -27,7 +29,7 @@ assert_true(cmds_include("Power2 1"), "channel 2 pump commanded")
 tasmota.set_power(1, true)
 wp1.rule_power({'State': 1}, 'POWER2')
 assert_true(P2.WaterIsOn(), "channel 2 relay ON")
-assert_eq(P2.FinishRule, "COUNTER#C1>=200", "finish rule on the shared counter")
+assert_eq(P2.FinishRule, "COUNTER#C1>=15", "finish rule on the shared counter")
 
 section("time_cap_recorded_on_release")
 
@@ -36,7 +38,7 @@ SIM['sensors']['COUNTER']['C1'] = 150
 tasmota.set_power(1, false)
 wp1.rule_power({'State': 0}, 'POWER2')
 assert_true(!P2.WaterIsOn(), "channel 2 relay released")
-assert_true(real(P2.LastFloodVol) == 150, "volume up to the cap recorded")
+assert_true(real(P2.LastFloodVol) == 300, "volume up to the cap recorded (150 ticks x 2.0 ml)")
 assert_eq(P2.Preset.Type, 'normal', "channel 2 used the normal preset")
 
 # ---------------- finished ----------------
