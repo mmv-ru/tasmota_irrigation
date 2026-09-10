@@ -300,13 +300,10 @@ timer_soil_transition_after_flooded →
 | Параметр | Store | Default | Размерность | Описание |
 |---|---|---|---|---|
 | `MaxPumpRun` | нет | 60 | с | кап времени работы помпы → `PulseTime{Num}` (аппаратный предохранитель этого FSM) |
-| `MaxFlood` | нет | 300 | мл | кап объёма сессии: `LastFloodVol > MaxFlood` → сессия закрывается; одновременно кап эскалации `Counter1FloodDefault` |
-| `Counter1FloodDefault` | нет | 30 | мл | доза полива по умолчанию (fallback, когда `estimateflood()` вернул nil); при повторной заливке растёт ×1.2 до `MaxFlood` в RAM и теряется при рестарте |
-| `Counter1Backflow` | нет | 0 | мл | компенсация обратного потока (для труб без обратного клапана, в коде закомментирован пример 19 мл) |
 
 ### Per-Plant: персистятся под префиксом `P{Num}`
 
-Регистрируются `Store.register_channel()` c политикой `debounced`; меняются через веб-настройки канала (пороги/сухая замочка) или Store.
+Регистрируются `Store.register_channel()` c политикой `debounced`; меняются через веб-настройки канала (пороги/сухая замочка/дозы) или Store. Попап «Уставки» («Настройки порогов» → ⚙) редактирует `P{Num}TargetDry/TargetWet/DryThreshold/SoakStartDose/MaxFlood/Counter1FloodDefault` (арги `m_soildry_N / m_soilwet_N / m_drythr_N / m_soakdose_N / m_maxflood_N / m_c1def_N`); `Counter1Backflow` настраивается **только через Store** (UI-поля нет).
 
 | Параметр | Где задан | Store-ключ | Default | Размерность | Описание |
 |---|---|---|---|---|---|
@@ -320,6 +317,9 @@ timer_soil_transition_after_flooded →
 | `SoakDailyCap` | `Plant` | `P{Num}SoakDailyCap` | 220 | мл | суточный лимит объёма замочки |
 | `SoakMaxDose` | `Plant` | `P{Num}SoakMaxDose` | 300 | мл | кап дозы замочки |
 | `LastFloodVol` | `Plant` | `P{Num}LastFloodVol` | 0 | мл | накопленный объём текущей сессии; на старте следующей архивируется в `PrevFloodedVol` |
+| `MaxFlood` | `Plant` | `P{Num}MaxFlood` | 300 | мл | кап объёма сессии: `LastFloodVol > MaxFlood` → сессия закрывается; одновременно кап эскалации `Counter1FloodDefault` (редактируется в попапе: `m_maxflood_N`) |
+| `Counter1FloodDefault` | `Plant` | `P{Num}Counter1FloodDefault` | 30 | мл | доза полива по умолчанию (fallback, когда `estimateflood()` вернул nil); при повторной заливке растёт ×1.2 до `MaxFlood` (редактируется в попапе: `m_c1def_N`) |
+| `Counter1Backflow` | `Plant` | `P{Num}Counter1Backflow` | 0 | мл | компенсация обратного потока (для труб без обратного клапана), Store-only |
 | `SoilHPreFlood` | `Plant` | `P{Num}SoilHPreFlood` | nil | RAW | EMA до полива (текущая сессия) |
 | `SoilMaxHymidity` / `SoilMaxHymidityTime` | `Plant` | `P{Num}SoilMaxHymidity` / `…Time` | nil | RAW / timestamp | максимум влажности после полива (текущая сессия) |
 | `PrevSoilHPreFlood` | `Plant` | `P{Num}PrevSoilHPreFlood` | nil | RAW | вход `estimateflood()`: EMA до прошлой сессии |

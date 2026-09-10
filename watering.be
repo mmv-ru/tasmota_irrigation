@@ -476,6 +476,9 @@ class PersistStore
             'SoakTrendWindow': '86400', 'SoakDoseGrow': '1.2',
             'SoakDailyCap': '220', 'SoakMaxDose': '300',
             'LastFloodVol': '0',
+            # session dose params in ml: cap + default dose + backflow
+            # compensation (Store-only, no UI field), see Plant.init().
+            'MaxFlood': '300', 'Counter1FloodDefault': '30', 'Counter1Backflow': '0',
             'SoilHPreFlood': nil,
             'SoilMaxHymidity': nil, 'SoilMaxHymidityTime': nil,
             'PrevSoilMaxHymidity': nil, 'PrevSoilHPreFlood': nil,
@@ -789,11 +792,12 @@ class Plant
         self.MaxPumpRun = 60
         # Volumes are expressed in ml (the internal canonical unit); the C1
         # counter stays in ticks and is converted at the border via ticks().
-        self.MaxFlood = 300
-        # When pipes without check valve, backflow - water in ml.
-        # self.Counter1Backflow = 19
-        self.Counter1Backflow = 0
-        self.Counter1FloodDefault = 30
+        # Session dose parameters are per-channel Store keys (defaults 300/30/0):
+        # MaxFlood (session volume cap), Counter1FloodDefault (fallback dose) and
+        # Counter1Backflow (backflow compensation, Store-only — no UI field).
+        self.MaxFlood = int(self.Store.get(self.Prefix .. 'MaxFlood'))
+        self.Counter1FloodDefault = int(self.Store.get(self.Prefix .. 'Counter1FloodDefault'))
+        self.Counter1Backflow = int(self.Store.get(self.Prefix .. 'Counter1Backflow'))
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
         self.ServiceRun = false
@@ -1811,7 +1815,7 @@ class Watering
         jsp.push("t.style.left=x+'px';t.style.top=y+'px';};")
         jsp.push("document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);")
         jsp.push("window._wdSett=null;")
-        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose (ml)','m_soakdose_','dose']];")
+        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose (ml)','m_soakdose_','dose'],['wds_maxflood','Max flood (ml)','m_maxflood_','maxflood'],['wds_c1def','Flood dose default (ml)','m_c1def_','c1def']];")
         jsp.push("window._wdSettingsOpen=function(a){")
         jsp.push("if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';var h='<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div><div class=\"bd\">';")
         jsp.push("for(var i=0;i<_wdF.length;i++){h+='<label>'+_wdF[i][1]+' <input id=\"'+_wdF[i][0]+'\" type=\"text\"></label>';}")
@@ -1828,8 +1832,9 @@ class Watering
         var js = ""
         for f: jsp js = js .. f end
         webserver.content_send(js)
-        # Soil Dry/Wet, Dry threshold and Soak start dose forms moved into the
-        # per-channel detail popup (see web_soil_detail + _wdSettingsOpen).
+        # Soil Dry/Wet, Dry threshold, Soak start dose, Max flood and flood dose
+        # default forms moved into the per-channel detail popup (see
+        # web_soil_detail + _wdSettingsOpen).
     end
 
     def web_add_handler()
@@ -2113,16 +2118,20 @@ class Watering
                 ss.RawWet, ss.Raw2Hu(ss.RawWet)
                 )
             # Per-channel settings button: opens the JS popup with this channel's
-            # Soil Dry/Wet, Dry threshold and Soak start dose (current values in
-            # data-* attrs). Lives in the Уставки group. The popup itself sits in
-            # document.body (outside #l1) so it survives the 2.3s polling redraw;
-            # see _wdSettingsOpen in web_add_main_button().
+            # Soil Dry/Wet, Dry threshold, Soak start dose, Max flood and flood
+            # dose default (current values in data-* attrs). Lives in the Уставки
+            # group. The popup itself sits in document.body (outside #l1) so it
+            # survives the 2.3s polling redraw; see _wdSettingsOpen in
+            # web_add_main_button().
             msg = msg .. string.format(
                 wrow("Настройки порогов",
-                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' " ..
+                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' data-maxflood='%i' data-c1def='%i' " ..
                      wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
                 num, ss.RawDry, ss.RawWet,
-                plant.DryThreshold, str(int(real(ss.Store.get(ss.Prefix .. 'SoakStartDose')))))
+                plant.DryThreshold,
+                str(int(real(ss.Store.get(ss.Prefix .. 'SoakStartDose')))),
+                int(real(ss.Store.get(ss.Prefix .. 'MaxFlood'))),
+                int(real(ss.Store.get(ss.Prefix .. 'Counter1FloodDefault'))))
             msg = msg .. wgrp("Датчик")
             # Values may be nil until the first sensor Update (unconnected
             # channels). Guard each one: show "nil" instead of crashing the
@@ -2245,17 +2254,19 @@ class Watering
 
         try
             # Per-channel settings (popup in each channel detail): args carry a
-            # channel suffix m_soildry_N / m_soilwet_N / m_drythr_N / m_soakdose_N.
-            # The bare args (m_soildry etc.) still mean channel 1 (legacy forms).
-            # One field table shared conceptually with the JS popup (_wdF in
-            # web_add_main_button): adding a field = one row here + one in _wdF.
+            # channel suffix m_soildry_N / m_soilwet_N / m_drythr_N /
+            # m_soakdose_N / m_maxflood_N / m_c1def_N. The bare args (m_soildry
+            # etc.) still mean channel 1 (legacy forms). One field table shared
+            # conceptually with the JS popup (_wdF in web_add_main_button):
+            # adding a field = one row here + one in _wdF.
             for i: 1..self.NumChannels
                 var s = str(i)
                 var ss = self.SoilSensors[i - 1]
                 var pl = self.plants[i - 1]
                 var sfx = i == 1 ? "" : "_" .. s
-                # Dry/Wet are validated by the sensor (gap > 20). Dry threshold
-                # and soak dose are plain int > 0 stored on the plant / Store.
+                # Dry/Wet are validated by the sensor (gap > 20). Dry threshold,
+                # soak dose, Max flood and flood dose default are plain int > 0
+                # stored on the plant / Store.
                 if webserver.has_arg("m_soildry" .. sfx)
                     if ss.SetDry(int(webserver.arg("m_soildry" .. sfx)))
                         print("web_sensor: channel " .. s .. " Soil Dry threshold set to " .. ss.RawDry)
@@ -2283,6 +2294,22 @@ class Watering
                     if sd != nil && sd > 0
                         self.Store.set('P' .. s .. 'SoakStartDose', sd)
                         print("web_sensor: channel " .. s .. " Soak start dose set to " .. sd)
+                    end
+                end
+                if webserver.has_arg("m_maxflood" .. sfx)
+                    var mf = int(webserver.arg("m_maxflood" .. sfx))
+                    if mf != nil && mf > 0
+                        pl.MaxFlood = mf
+                        self.Store.set('P' .. s .. 'MaxFlood', mf)
+                        print("web_sensor: channel " .. s .. " Max flood set to " .. mf)
+                    end
+                end
+                if webserver.has_arg("m_c1def" .. sfx)
+                    var cd = int(webserver.arg("m_c1def" .. sfx))
+                    if cd != nil && cd > 0
+                        pl.Counter1FloodDefault = cd
+                        self.Store.set('P' .. s .. 'Counter1FloodDefault', cd)
+                        print("web_sensor: channel " .. s .. " flood dose default set to " .. cd)
                     end
                 end
             end
