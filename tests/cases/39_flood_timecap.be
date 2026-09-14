@@ -4,11 +4,12 @@ import json
 
 section("per_channel_pulsetime")
 
-# init arms a PulseTime cap on every channel's relay
-assert_true(cmds_include('PulseTime1:{'), "PulseTime1 armed at init")
-assert_true(cmds_include('PulseTime2:{'), "PulseTime2 armed at init")
-assert_true(cmds_include('PulseTime3:{'), "PulseTime3 armed at init")
-assert_true(cmds_include('PulseTime4:{'), "PulseTime4 armed at init")
+# init arms a PulseTime cap on every channel's relay (plain numeric form - the
+# structured :{"Set":N,"Remaining":0} form is a no-op on the target firmware)
+assert_true(cmds_include('PulseTime1 160'), "PulseTime1 armed at init")
+assert_true(cmds_include('PulseTime2 160'), "PulseTime2 armed at init")
+assert_true(cmds_include('PulseTime3 160'), "PulseTime3 armed at init")
+assert_true(cmds_include('PulseTime4 160'), "PulseTime4 armed at init")
 assert_eq(wp1.pulseencode(60), 160, "60s cap encodes as PulseTime 160")
 assert_eq(wp1.pulseencode(-5), 0, "negative cap clamped to 0")
 

@@ -868,7 +868,7 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
             self.Owner.FlowSensors[0].RateMeasuring = true
             # PulseTime stays armed (safety), but raised to SERVICE_RUN_CAP so the
             # default MaxPumpRun (60s) cannot cut a manual calibration run short.
-            tasmota.cmd("PulseTime" .. str(self.Num) .. ':{"Set":' .. str(self.Owner.pulseencode(SERVICE_RUN_CAP)) .. ',"Remaining":0}')
+            tasmota.cmd("PulseTime" .. str(self.Num) .. " " .. str(self.Owner.pulseencode(SERVICE_RUN_CAP)))
             print("Service: pump " .. str(self.Num) .. " ON")
             return
         end
@@ -928,7 +928,7 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
             self.Owner.ServiceResult = {'num': self.Num, 'ticks': ticks, 'millis': self.PumpRunMillis, 'finished': tasmota.rtc()['local']}
             print("Service: pump " .. str(self.Num) .. " OFF, ticks=" .. str(ticks) .. " millis=" .. str(self.PumpRunMillis))
             # restore the automatic-run PulseTime cap (MaxPumpRun -> PulseTime{Num})
-            tasmota.cmd("PulseTime" .. str(self.Num) .. ':{"Set":' .. str(self.Owner.pulseencode(self.MaxPumpRun)) .. ',"Remaining":0}')
+            tasmota.cmd("PulseTime" .. str(self.Num) .. " " .. str(self.Owner.pulseencode(self.MaxPumpRun)))
             tasmota.remove_timer("ID_ENDFASTTELE")
             tasmota.set_timer(60*1000, /-> self.Owner.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
             return
@@ -1549,7 +1549,9 @@ class Watering
             self.PowerMap['POWER' + str(i + 1)] = p
             var pnum = str(i + 1)
             var PulseTime = int(self.pulseencode(p.MaxPumpRun))
-            tasmota.cmd('PulseTime' .. pnum .. ':{"Set":' .. str(PulseTime) .. ',"Remaining":0}')
+            # Plain numeric form: the structured :{"Set":N,"Remaining":0} form is a
+            # silent no-op on the target firmware, keeping the real cap instead.
+            tasmota.cmd('PulseTime' .. pnum .. ' ' .. str(PulseTime))
             tasmota.add_rule("POWER" .. pnum, / v, t -> self.rule_power(v, t))
         end
 

@@ -140,7 +140,7 @@ assert_eq(P1.ServiceRun, true, "plant flagged as a service run")
 assert_eq(wp1.ServiceResult, nil, "no result before the stop")
 assert_eq(P1.Counter1BeforeStartTicks, 500, "shared counter snapshotted at start")
 assert_true(cmds_include("TelePeriod 10"), "fast telemetry during the service run")
-assert_true(cmds_include('PulseTime1:{"Set":1900,"Remaining":0}'), "service run raises the PulseTime cap to SERVICE_RUN_CAP (30 min)")
+assert_true(cmds_include("PulseTime1 1900"), "service run raises the PulseTime cap to SERVICE_RUN_CAP (30 min)")
 assert_eq(P1.FinishRule, nil, "no counter finish rule for service runs")
 assert_true(SIM['timers'].find("ID_ENDFASTTELE") == nil, "no fast-tele reset timer while running")
 
@@ -167,7 +167,7 @@ assert_eq(sr1['millis'], 60000, "result carries the run duration")
 assert_true(SIM['timers'].find("ID_ENDFASTTELE") != nil, "fast-tele end timer armed after stop")
 assert_eq(F0.RateMeasuring, false, "rate measurement stopped")
 assert_true(!cmds_include("counter1"), "shared counter untouched by the service stop")
-assert_true(cmds_include('PulseTime1:{"Set":160,"Remaining":0}'), "normal PulseTime cap restored on service stop (MaxPumpRun 60s)")
+assert_true(cmds_include("PulseTime1 160"), "normal PulseTime cap restored on service stop (MaxPumpRun 60s)")
 
 section("service_calibrate_volume")
 
@@ -301,7 +301,7 @@ assert_eq(P1.ServiceRun, false, "service run closed after the rule")
 var sr8 = wp1.ServiceResult
 assert_true(sr8 != nil, "exit stop reported a result")
 assert_eq(sr8['ticks'], 100, "exit stop tick delta (400-300)")
-assert_true(cmds_include('PulseTime1:{"Set":160,"Remaining":0}'), "PulseTime cap restored after the exit stop")
+assert_true(cmds_include("PulseTime1 160"), "PulseTime cap restored after the exit stop")
 
 # ---------------- finished ----------------
 
