@@ -195,7 +195,8 @@ flowchart TD
 | `request_manual(plant)` | Ручной запуск (кнопка/`DrySoak start`) с тем же guardian, что и `request_repeat` |
 | `init_sensors()` | Создаёт SoilSensors A1..A4, общие FlowSensors C1/C2, `Plant(0..3)`, `PowerMap`, правила `POWER{Num}`, `PulseTime{Num}`, cron, команды; правила каналов/кнопки снимаются в `deinit()` |
 | `web_sensor()` / `json_append()` | Веб-ряды и телеметрия: канал 1 — телеметрический (`Soil1*`, `Soil2*`, `LastFloodSessionVol` и т.д.), детальный Store-блок — ключи `P1*` |
-| `every_second()` | Фон 1/с: Update сенсоров + трекинг минимума влажности для каждого канала (только при `_stats_enabled()`) |
+| `every_second()` | Фон 1/с: Update сенсоров + трекинг минимума влажности для каждого канала (только при `_stats_enabled()`) + `_flow_low_check()` |
+| `_flow_low_check()` | Глобальная детекция «Нет воды» (`OutOfWater`, in-memory): лимит `FlowRateLimit` (мл/мин, 0 = выключено → сброс флага) сравнивается с живым расходом общего расходомера C1 (`FlowSensors[0].Rate*60`); признак low = есть активный канал (`plants[i].WaterIsOn()`) при расходе ниже лимита; подряд `UnwaterSeconds >= 5` на sub-limit расходе → `OutOfWater=true` (лог `OutOfWater: low flow for Ns`), восстановление/выкл помпы сбрасывает счётчик и флаг (`OutOfWater: flow restored`). Баннер «Нет воды» на главной в `web_sensor()`, флаг экспортируется в телеметрию как `OutOfWater` |
 
 ### Plant (канал, своя FSM)
 | Метод | Роль в FSM |
@@ -292,6 +293,7 @@ timer_soil_transition_after_flooded →
 |---|---|---|---|---|---|
 | `Channels` | `Watering.init()` | `Channels` (immediate) | 2 | шт | число каналов, clamp `[1, MAX_CHANNELS=4]`; задаётся на `/svc` (`?channels=N`, применяется после перезагрузки; параметры отключённых каналов в Store не удаляются) |
 | `FlowScale` | `FlowSensors[0]` | `FlowScale` (debounced) | 0.1449 | мл/тик C1 | калибровка расходомера C1, общий счётчик всех каналов; пишется с `/svc` (калибровка/ручной ввод) |
+| `FlowRateLimit` | `Watering.init()` | `FlowRateLimit` (debounced) | 0 | мл/мин | глобальный лимит расхода «Нет воды»; 0 = выключено; задаётся на `/svc` (`?flowlimit=N`, кан. целые неотрицательные) |
 
 ### Per-Plant: захардкожены в `Plant.init()`
 

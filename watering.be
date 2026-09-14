@@ -1233,6 +1233,9 @@ class Watering
     var Store
     var NumChannels
     var _channels_pending
+    var FlowRateLimit
+    var OutOfWater
+    var UnwaterSeconds
 
 
     def button_pressed(cmd, idx, payload, raw)
@@ -1426,6 +1429,10 @@ class Watering
         # One-time units-upgrade marker: present once the iteration-1 C1-tick
         # persisted values have been converted to ml (see _migrate_units).
         self.Store.register('UnitsV2', {'default': '0', 'policy': 'immediate'})
+        # Global low-flow detection limit (ml/min). 0 = detection disabled. When
+        # an active channel measures Rate*60 below this, the global OutOfWater
+        # flag is set (see _flow_low_check). Configured from the service page.
+        self.Store.register('FlowRateLimit', {'default': '0', 'policy': 'debounced'})
         for i: 0..(MAX_CHANNELS - 1)
             self.Store.register_channel('P' + str(i + 1))
         end
@@ -1436,6 +1443,15 @@ class Watering
         elif self.NumChannels > MAX_CHANNELS
             self.NumChannels = MAX_CHANNELS
         end
+        # Global low-flow detection limit (ml/min, 0 = off). Read after load()
+        # so a persisted override wins over the registered default. The flag and
+        # the grace counter are pure in-memory session state.
+        self.FlowRateLimit = int(self.Store.get('FlowRateLimit'))
+        if self.FlowRateLimit == nil
+            self.FlowRateLimit = 0
+        end
+        self.OutOfWater = false
+        self.UnwaterSeconds = 0
         # Upgrade persisted values from C1 ticks to ml BEFORE the plants read
         # them (plants are created in init_sensors()).
         self._migrate_units(real(self.Store.get('FlowScale')))
@@ -1673,6 +1689,11 @@ class Watering
         for s: self.FlowSensors
             s.Update(sensors)
         end
+        try
+            self._flow_low_check()
+        except .. as e
+            print("every_second: flow check failed " .. e)
+        end
         for p: self.plants
             if !p.PauseSoilMaxStat && p._stats_enabled()
                 if p.SoilMaxHymidityTemp == nil || p.SoilMaxHymidityTemp > p.SoilSensor.RawEma
@@ -1695,6 +1716,49 @@ class Watering
                 p.SoilMaxHymidityTime = p.SoilMaxHymidityTimeTemp
                 self.Store.save_batch_entries(p.max_batch())
             end
+        end
+    end
+
+    def _flow_low_check()
+        # Global "Out of Water" detection. The flow limit (ml/min, 0 = off,
+        # global FlowRateLimit Store key) is compared against the live rate of
+        # the shared C1 water meter (FlowSensors[0] - the only meter that
+        # waters; every Plant reads it via <Owner.FlowSensors[0]). The
+        # per-channel dimension is the pump state: any channel whose pump is on
+        # (WaterIsOn) while the shared rate stays below the limit for
+        # LOWFLOW_GRACE seconds counts as running dry; such a channel flips the
+        # global OutOfWater flag. The flag clears as soon as the sustained-low
+        # condition does (no active channel below the limit, or all pumps off).
+        if self.FlowRateLimit == nil || self.FlowRateLimit <= 0
+            self.UnwaterSeconds = 0
+            self.OutOfWater = false
+            return
+        end
+        var fs = self.FlowSensors[0]
+        var lrate = fs.Rate != nil ? fs.Rate * 60 : 0
+        var low = false
+        for i: 0..(self.NumChannels - 1)
+            var p = self.plants[i]
+            if p.WaterIsOn() && lrate < self.FlowRateLimit
+                low = true
+            end
+        end
+        if low
+            self.UnwaterSeconds += 1
+            # Grace period: choke-start of the pump and short bursts must not
+            # trip the alarm. 5 s at sub-limit flow is treated as real dry-run.
+            if self.UnwaterSeconds >= 5
+                if !self.OutOfWater
+                    print("OutOfWater: low flow for " .. self.UnwaterSeconds .. "s")
+                end
+                self.OutOfWater = true
+            end
+        else
+            self.UnwaterSeconds = 0
+            if self.OutOfWater
+                print("OutOfWater: flow restored")
+            end
+            self.OutOfWater = false
         end
     end
 
@@ -1886,6 +1950,9 @@ class Watering
         if webserver.has_arg("channels")
             self._service_channels_arg()
         end
+        if webserver.has_arg("flowlimit")
+            self._service_flowlimit_arg()
+        end
         if webserver.has_arg("restart")
             # Deferred so the browser receives the response first. On the harness
             # the timer/command are asserted from SIM.
@@ -1904,6 +1971,7 @@ class Watering
             self._service_cal_fieldset(false)
         end
         self._service_channels_fieldset()
+        self._service_limits_fieldset()
         webserver.content_button(webserver.BUTTON_MAIN)
         webserver.content_stop()
     end
@@ -1995,6 +2063,28 @@ class Watering
         print("Service: channels set to " .. str(n) .. ", restart required")
     end
 
+    def _service_flowlimit_arg()
+        # ?flowlimit=N: change the global low-flow detection limit (ml/min).
+        # 0 disables detection. Debounced (like FlowScale); the live value is
+        # applied immediately so _flow_low_check picks it up on the next tick.
+        # Berry's int() silently maps unparsable input to 0, so a re-roundtrip
+        # check (str(int(raw)) == raw) rejects any non-canonical value while
+        # still allowing 0 and rejecting negatives via the sign guard.
+        var raw = webserver.arg("flowlimit")
+        if raw == nil || raw == ""
+            print("Service: bad flowlimit arg '" .. str(raw) .. "'")
+            return
+        end
+        var n = int(raw)
+        if n < 0 || str(n) != raw
+            print("Service: bad flowlimit arg '" .. str(raw) .. "'")
+            return
+        end
+        self.FlowRateLimit = n
+        self.Store.set('FlowRateLimit', str(n))
+        print("Service: flow rate limit set to " .. str(n) .. " ml/min")
+    end
+
     def _service_channels_fieldset()
         # Channel-count fieldset rendered in any mode state. After the value has
         # just been changed it shows a "restart required" note plus a restart
@@ -2016,6 +2106,18 @@ class Watering
                 "' value='" .. str(self.NumChannels) .. "'> " ..
                 "<button>Применить</button></form>")
         end
+        webserver.content_send("</fieldset>")
+    end
+
+    def _service_limits_fieldset()
+        # Low-flow ("Out of Water") fieldset, rendered in any mode state like the
+        # channel fieldset. 0 disables detection.
+        import string
+        webserver.content_send("<fieldset><legend>Нет воды</legend>")
+        webserver.content_send("<p>Лимит расхода: <b>" .. str(self.FlowRateLimit) .. " ml/min</b> (0 = выкл).</p>")
+        webserver.content_send(
+            "<p>Лимит расхода (мл/мин, 0 — выключить): <input name='flowlimit' type='number' min='0' value='" ..
+            str(self.FlowRateLimit) .. "'> <button>Применить</button></p>")
         webserver.content_send("</fieldset>")
     end
 
@@ -2223,6 +2325,16 @@ class Watering
             end
         end
 
+        # Global "Out of Water" banner: an active channel ran below the flow
+        # rate limit for the grace period (see _flow_low_check).
+        if self.OutOfWater
+            try
+                tasmota.web_send_decimal(wrow("Нет воды", "да"))
+            except .. as e
+                print("web_sensor: out-of-water banner failed " .. e)
+            end
+        end
+
         try
             if webserver.has_arg("m_reset_water_counter_1")
               if self.plants[0].AutofloodInProcess
@@ -2386,6 +2498,7 @@ class Watering
                 'PrevSoilMaxHymidity': p0.PrevSoilMaxHymidity,
                 'PumpRunMillis': p0.PumpRunMillis,
                 'FlowSensorRate': self.FlowSensors[0].Rate,
+                'OutOfWater': self.OutOfWater,
                 'SoilHPreFlood': p0.SoilHPreFlood,
 
                      }
