@@ -139,6 +139,7 @@ var page = ""
 for h: SIM['webhtml'] page = page .. h end
 assert_true(string.find(page, "flowlimit") >= 0, "/svc renders flowlimit input")
 assert_true(string.find(page, "ml/min") >= 0, "/svc shows units ml/min")
+assert_true(string.find(page, "<form action='svc' style='display: block;' method='get'><input name='flowlimit'") >= 0, "/svc flowlimit is inside a real GET form (button submits)")
 
 section("svc_page_garbage_rejected")
 

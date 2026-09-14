@@ -2116,8 +2116,9 @@ class Watering
         webserver.content_send("<fieldset><legend>Нет воды</legend>")
         webserver.content_send("<p>Лимит расхода: <b>" .. str(self.FlowRateLimit) .. " ml/min</b> (0 = выкл).</p>")
         webserver.content_send(
-            "<p>Лимит расхода (мл/мин, 0 — выключить): <input name='flowlimit' type='number' min='0' value='" ..
-            str(self.FlowRateLimit) .. "'> <button>Применить</button></p>")
+            "<p>Лимит расхода (мл/мин, 0 — выключить): <form action='svc' style='display: block;' method='get'>"..
+            "<input name='flowlimit' type='number' min='0' value='" ..
+            str(self.FlowRateLimit) .. "'> <button>Применить</button></form></p>")
         webserver.content_send("</fieldset>")
     end
 
