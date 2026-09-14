@@ -917,7 +917,7 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
                 ticks = 0
             end
             self.ServiceRun = false
-            self.Owner.ServiceResult = {'num': self.Num, 'ticks': ticks, 'millis': self.PumpRunMillis}
+            self.Owner.ServiceResult = {'num': self.Num, 'ticks': ticks, 'millis': self.PumpRunMillis, 'finished': tasmota.rtc()['local']}
             print("Service: pump " .. str(self.Num) .. " OFF, ticks=" .. str(ticks) .. " millis=" .. str(self.PumpRunMillis))
             tasmota.remove_timer("ID_ENDFASTTELE")
             tasmota.set_timer(60*1000, /-> self.Owner.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
@@ -1960,6 +1960,13 @@ class Watering
         end
         webserver.content_start("Сервисный режим")
         webserver.content_send_style()
+        # Live flow-rate during a service pump run: reload the page every 2 s
+        # (same refresh-model as the main page) so the "Прогон" number updates.
+        # Strictly while a run is active - after OFF the page settles so the
+        # measured-volume field can be filled in.
+        if self.ServiceMode && self._service_run_plant() != nil
+            webserver.content_send("<script>setTimeout(function(){location.reload()},2000);</script>")
+        end
         var state = self.ServiceMode ? "включен" : "выключен"
         webserver.content_send("<p>Сервисный режим: <b>" .. state .. "</b>.</p>")
         if self.ServiceMode
@@ -2010,6 +2017,17 @@ class Watering
                 tasmota.set_power(n - 1, false)
             end
         end
+    end
+
+    def _service_run_plant()
+        # The channel currently pumping in service mode, or nil. Drive for the
+        # live flow-rate display and the page auto-reload while a run is active.
+        for i: 0..(self.NumChannels - 1)
+            if self.plants[i].ServiceRun
+                return self.plants[i]
+            end
+        end
+        return nil
     end
 
     def _service_calibrate()
@@ -2137,6 +2155,17 @@ class Watering
                 "<form action='svc' style='display: inline-block;' method='get'><input type='hidden' name='pump' value='" .. str(i + 1) .. "'><input type='hidden' name='off' value='1'><button>OFF</button></form></p>")
         end
         webserver.content_send("</fieldset>")
+        var rp = self._service_run_plant()
+        if rp != nil
+            # Live flow rate (ml/min) from the shared C1 meter using the current
+            # calibration - same number the main page shows in the water section.
+            var rate = self.FlowSensors[0].Rate
+            var rate_s = rate != nil ? string.format("%01.1f", rate * 60) : "n/a"
+            webserver.content_send(
+                "<fieldset><legend>Прогон</legend>" ..
+                "<p>Канал " .. str(rp.Num) .. ", расход: <b>" .. rate_s ..
+                " ml/min</b> (текущая калибровка).</p></fieldset>")
+        end
         self._service_cal_fieldset(true)
         webserver.content_send("<form action='svc' style='display: block;' method='get'><input type='hidden' name='exit' value='1'><button>Выйти</button></form>")
     end
@@ -2157,10 +2186,16 @@ class Watering
                 var tpm = (sr['ticks'] != nil && sr['millis'] != nil && sr['millis'] > 0) ?
                           string.format("%01.1f", sr['ticks'] * 60000.0 / sr['millis']) : "0"
                 var uml = (sr['ticks'] != nil) ? string.format("%01.1f", self.FlowSensors[0].Scale * sr['ticks']) : "0"
+                # Average flow over the whole run (ml/min at the current scale)
+                # and the run-end timestamp - nozzle adjustment data.
+                var uml_rate = (sr['ticks'] != nil && sr['millis'] != nil && sr['millis'] > 0 && self.FlowSensors[0].Scale > 0) ?
+                               string.format("%01.1f", sr['ticks'] * self.FlowSensors[0].Scale * 60000.0 / sr['millis']) : "0"
+                var end_s = sr['finished'] != nil ? self._TimeStr(sr['finished']) : "n/a"
                 webserver.content_send(
                     "<p>Последний прогон: канал " .. str(sr['num']) ..
                     ", " .. dur .. " с, " .. str(sr['ticks']) .. " тиков (" ..
-                    tpm .. " тиков/мин, " .. uml .. " мл при текущем scale).</p>")
+                    tpm .. " тиков/мин, " .. uml .. " мл при текущем scale), " ..
+                    "средний расход <b>" .. uml_rate .. " ml/min</b>, окончание " .. end_s .. ".</p>")
             end
             webserver.content_send(
                 "<p>Прокачайте воду (кнопки Канал ON/OFF) и укажите измеренный объём:</p>" ..

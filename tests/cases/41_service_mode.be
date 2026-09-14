@@ -441,3 +441,64 @@ wp1._channels_pending = nil
 Sx.set('Channels', '4')
 Sx.flush(true)
 SIM['timers'] = map()
+
+section("service_run_live_rate_and_finish")
+
+# a service pump run shows the live flow rate (current calibration) on /svc,
+# the page auto-reloads while the pump is on, and after OFF the last-run block
+# reports the average flow over the run plus the run-end timestamp
+SIM['timers'] = map()
+SIM['cmds'] = list()
+SIM_POWER = [false, false, false, false]
+F0.setScale(4.0)
+F0.RawRate = nil
+wp1.ServiceMode = true
+wp1.ServiceResult = nil
+SIM['sensors']['COUNTER']['C1'] = 500
+F0.Update(json.load(tasmota.read_sensors()))
+SIM['millis'] = 1000
+tasmota.set_power(0, true)
+wp1.rule_power({'State': 1}, 'POWER1')
+assert_eq(P1.ServiceRun, true, "service run active for the live-rate render")
+
+# live render while pumping: scale 4.0, RawRate 0.5 -> Rate 2.0 ml/s -> 120.0 ml/min
+F0.RawRate = 0.5
+SIM['webhtml'] = list()
+webserver.has_arg = def (name) return false end
+wp1.page_service()
+var plive = ""
+for m: SIM['webhtml'] plive = plive + m end
+assert_true(string.find(plive, "<legend>Прогон</legend>") >= 0, "live run fieldset present while pumping")
+assert_true(string.find(plive, "120.0 ml/min") >= 0, "live flow rate shown (120.0 ml/min at scale 4.0)")
+assert_true(string.find(plive, "текущая калибровка") >= 0, "live rate labelled as current calibration")
+assert_true(string.find(plive, "setTimeout(function(){location.reload()},2000);") >= 0, "page auto-reloads while the run is active")
+
+# stop: the result now records the run-end epoch
+F0.RawRate = nil
+SIM['sensors']['COUNTER']['C1'] = 750
+SIM['millis'] = 1000 + 60000
+tasmota.set_power(0, false)
+wp1.rule_power({'State': 0}, 'POWER1')
+assert_eq(P1.ServiceRun, false, "service run closed")
+var srl = wp1.ServiceResult
+assert_true(srl != nil, "last-run result recorded")
+assert_eq(srl['ticks'], 250, "run ticks")
+assert_eq(srl['millis'], 60000, "run duration")
+assert_eq(srl['finished'], SIM['rtc_local'], "run end timestamp recorded in ServiceResult")
+
+# after-OFF render: average flow over the run + end time, no auto-reload JS
+SIM['webhtml'] = list()
+webserver.has_arg = def (name) return false end
+wp1.page_service()
+var pdone = ""
+for m: SIM['webhtml'] pdone = pdone + m end
+assert_true(string.find(pdone, "Последний прогон: канал 1") >= 0, "last-run row present after OFF")
+assert_true(string.find(pdone, "средний расход <b>1000.0 ml/min</b>") >= 0, "average run flow (250 ticks * 4.0 / 60s)")
+assert_true(string.find(pdone, "окончание 2023-01-01 10:00:00") >= 0, "run end date/time shown")
+assert_true(string.find(pdone, "setTimeout") < 0, "auto-reload JS gone after the run")
+assert_true(string.find(pdone, "<legend>Прогон</legend>") < 0, "live run fieldset gone after the run")
+
+# restore: mode off, default scale
+wp1.ServiceMode = false
+F0.setScale(0.1449)
+SIM['timers'] = map()
