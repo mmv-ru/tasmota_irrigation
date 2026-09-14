@@ -7,6 +7,11 @@ import persist
 # flow counter C1, so fills are strictly serialised (one at a time).
 var MAX_CHANNELS = 4
 
+# Pump-time cap while a manual service run is active: PulseTime stays armed as a
+# safety, but longer than the automatic MaxPumpRun so a calibration run is not
+# cut short. Restored to MaxPumpRun when the service run stops.
+var SERVICE_RUN_CAP = 30 * 60
+
 def EMA(oldEMA, N, NewValue)
     import math
 #    return (math.floor(oldEMA*(N - 1)*10.0) + NewValue*10.0) / (N*10)
@@ -861,6 +866,9 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
             tasmota.cmd("TelePeriod 10")
             tasmota.remove_timer("ID_ENDFASTTELE")
             self.Owner.FlowSensors[0].RateMeasuring = true
+            # PulseTime stays armed (safety), but raised to SERVICE_RUN_CAP so the
+            # default MaxPumpRun (60s) cannot cut a manual calibration run short.
+            tasmota.cmd("PulseTime" .. str(self.Num) .. ':{"Set":' .. str(self.Owner.pulseencode(SERVICE_RUN_CAP)) .. ',"Remaining":0}')
             print("Service: pump " .. str(self.Num) .. " ON")
             return
         end
@@ -919,6 +927,8 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
             self.ServiceRun = false
             self.Owner.ServiceResult = {'num': self.Num, 'ticks': ticks, 'millis': self.PumpRunMillis, 'finished': tasmota.rtc()['local']}
             print("Service: pump " .. str(self.Num) .. " OFF, ticks=" .. str(ticks) .. " millis=" .. str(self.PumpRunMillis))
+            # restore the automatic-run PulseTime cap (MaxPumpRun -> PulseTime{Num})
+            tasmota.cmd("PulseTime" .. str(self.Num) .. ':{"Set":' .. str(self.Owner.pulseencode(self.MaxPumpRun)) .. ',"Remaining":0}')
             tasmota.remove_timer("ID_ENDFASTTELE")
             tasmota.set_timer(60*1000, /-> self.Owner.timer_endfasttele_after_flooded(), "ID_ENDFASTTELE")
             return
