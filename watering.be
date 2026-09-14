@@ -2180,22 +2180,32 @@ class Watering
         webserver.content_send("<fieldset><legend>Калибровка датчика потока</legend>")
         webserver.content_send("<p>Scale (мл/тик): <b>" .. string.format("%01.4f", self.FlowSensors[0].Scale) .. "</b></p>")
         if show_cal
+            # Last service run: always the same three short rows so the column
+            # does not jump; missing data renders as a dash.
             var sr = self.ServiceResult
-            if sr != nil
-                var dur = sr['millis'] != nil ? string.format("%01.1f", sr['millis'] / 1000.0) : "0"
+            var dash = "&mdash;"
+            if sr == nil
+                webserver.content_send("<p>Последний прогон: " .. dash .. "</p>")
+                webserver.content_send("<p>При текущем scale: " .. dash .. "</p>")
+                webserver.content_send("<p>Окончание " .. dash .. "</p>")
+            else
+                var num = sr['num'] != nil ? str(sr['num']) : dash
+                var ticks = sr['ticks'] != nil ? str(sr['ticks']) : dash
+                var dur = sr['millis'] != nil ? string.format("%01.1f", sr['millis'] / 1000.0) : dash
                 var tpm = (sr['ticks'] != nil && sr['millis'] != nil && sr['millis'] > 0) ?
-                          string.format("%01.1f", sr['ticks'] * 60000.0 / sr['millis']) : "0"
-                var uml = (sr['ticks'] != nil) ? string.format("%01.1f", self.FlowSensors[0].Scale * sr['ticks']) : "0"
+                          string.format("%01.1f", sr['ticks'] * 60000.0 / sr['millis']) : dash
+                var uml = (sr['ticks'] != nil) ? string.format("%01.1f", self.FlowSensors[0].Scale * sr['ticks']) : dash
                 # Average flow over the whole run (ml/min at the current scale)
                 # and the run-end timestamp - nozzle adjustment data.
                 var uml_rate = (sr['ticks'] != nil && sr['millis'] != nil && sr['millis'] > 0 && self.FlowSensors[0].Scale > 0) ?
-                               string.format("%01.1f", sr['ticks'] * self.FlowSensors[0].Scale * 60000.0 / sr['millis']) : "0"
-                var end_s = sr['finished'] != nil ? self._TimeStr(sr['finished']) : "n/a"
+                               string.format("%01.1f", sr['ticks'] * self.FlowSensors[0].Scale * 60000.0 / sr['millis']) : dash
+                var end_s = sr['finished'] != nil ? self._TimeStr(sr['finished']) : dash
                 webserver.content_send(
-                    "<p>Последний прогон: канал " .. str(sr['num']) ..
-                    ", " .. dur .. " с, " .. str(sr['ticks']) .. " тиков (" ..
-                    tpm .. " тиков/мин, " .. uml .. " мл при текущем scale), " ..
-                    "средний расход <b>" .. uml_rate .. " ml/min</b>, окончание " .. end_s .. ".</p>")
+                    "<p>Последний прогон: канал " .. num .. ", " .. dur ..
+                    " с, " .. ticks .. " тиков (" .. tpm .. " тиков/мин)</p>")
+                webserver.content_send(
+                    "<p>При текущем scale: " .. uml .. " мл, средний расход <b>" .. uml_rate .. " ml/min</b></p>")
+                webserver.content_send("<p>Окончание " .. end_s .. "</p>")
             end
             webserver.content_send(
                 "<p>Прокачайте воду (кнопки Канал ON/OFF) и укажите измеренный объём:</p>" ..
@@ -2208,17 +2218,28 @@ class Watering
                 "<input name='scale' type='text' placeholder='коэффициент, мл/тик'> " ..
                 "<button>Установить коэффициент</button></form>")
         else
+            # Last calibration: always the same two short rows so the column
+            # does not jump; missing data renders as a dash.
             var lc = self.LastCalibration
-            if lc != nil
-                var dur = lc['millis'] != nil ? string.format("%01.1f", lc['millis'] / 1000.0) : "0"
+            var dash = "&mdash;"
+            if lc == nil
+                webserver.content_send("<p>Последняя калибровка: " .. dash .. "</p>")
+                webserver.content_send("<p>Scale: " .. dash .. "</p>")
+            else
+                var num = lc['num'] != nil ? str(lc['num']) : dash
+                var vol = lc['vol'] != nil ? string.format("%01.0f", lc['vol']) : dash
+                var ticks = lc['ticks'] != nil ? str(lc['ticks']) : dash
+                var scale = lc['scale'] != nil ? string.format("%01.4f", lc['scale']) : dash
+                var dur = lc['millis'] != nil ? string.format("%01.1f", lc['millis'] / 1000.0) : dash
                 var tpm = (lc['ticks'] != nil && lc['millis'] != nil && lc['millis'] > 0) ?
-                          string.format("%01.1f", lc['ticks'] * 60000.0 / lc['millis']) : "0"
-                var uml = (lc['ticks'] != nil) ? string.format("%01.1f", lc['scale'] * lc['ticks']) : "0"
+                          string.format("%01.1f", lc['ticks'] * 60000.0 / lc['millis']) : dash
+                var uml = (lc['ticks'] != nil) ? string.format("%01.1f", lc['scale'] * lc['ticks']) : dash
                 webserver.content_send(
-                    "<p>Последняя калибровка: канал " .. str(lc['num']) ..
-                    ", " .. string.format("%01.0f", lc['vol']) .. " мл / " .. str(lc['ticks']) ..
-                    " тиков (" .. string.format("%01.4f", lc['scale']) .. " мл/тик), " ..
-                    dur .. " с, " .. tpm .. " тиков/мин (" .. uml .. " мл/мин).</p>")
+                    "<p>Последняя калибровка: канал " .. num .. ", " .. vol ..
+                    " мл / " .. ticks .. " тиков</p>")
+                webserver.content_send(
+                    "<p>Scale: " .. scale .. " мл/тик, " .. dur .. " с, " ..
+                    tpm .. " тиков/мин (" .. uml .. " мл/мин)</p>")
             end
             webserver.content_send(
                 "<form action='svc' style='display: block;' method='get'>" ..

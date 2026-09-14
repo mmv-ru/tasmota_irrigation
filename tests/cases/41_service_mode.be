@@ -37,6 +37,9 @@ assert_true(string.find(penter, "name='pump' value='1'") >= 0 && string.find(pen
 assert_true(string.find(penter, "name='pump' value='2'") >= 0 && string.find(penter, "name='off' value='1'") >= 0, "channel OFF posts pump/off as hidden inputs")
 assert_true(string.find(penter, "name='cal' value='1'") >= 0 && string.find(penter, "name='set' value='1'") >= 0, "calibration commands carry over as hidden inputs")
 assert_true(string.find(penter, "name='exit' value='1'") >= 0, "exit posts as hidden input")
+assert_true(string.find(penter, "Последний прогон: &mdash;") >= 0, "no run yet -> last-run placeholder row")
+assert_true(string.find(penter, "При текущем scale: &mdash;") >= 0, "no run yet -> scale placeholder row")
+assert_true(string.find(penter, "Окончание &mdash;") >= 0, "no run yet -> finish placeholder row")
 
 section("service_mode_enter_rearms")
 
@@ -315,7 +318,8 @@ webserver.has_arg = def (name) return false end
 wp1.page_service()
 for m: SIM['webhtml'] pafter = pafter + m end
 assert_true(string.find(pafter, "Scale (мл/тик)") >= 0, "current scale shown while off")
-assert_true(string.find(pafter, "Последняя калибровка: канал 1, 1000 мл / 250 тиков (4.0000 мл/тик), 60.0 с, 250.0 тиков/мин (1000.0 мл/мин)") >= 0, "last-calibration stats row shown while off")
+assert_true(string.find(pafter, "Последняя калибровка: канал 1, 1000 мл / 250 тиков") >= 0, "last-calibration stats row shown while off")
+assert_true(string.find(pafter, "Scale: 4.0000 мл/тик, 60.0 с, 250.0 тиков/мин (1000.0 мл/мин)") >= 0, "last-calibration stats shown while off")
 assert_true(string.find(pafter, "0.5000") >= 0, "current (manual-set) scale rendered while off")
 assert_true(string.find(pafter, "name='set' value='1'") >= 0, "direct scale-entry form present while off")
 assert_true(string.find(pafter, "name='cal' value='1'") < 0, "volume calibration form not offered while off")
@@ -330,7 +334,8 @@ wp1.page_service()
 var p0 = ""
 for m: SIM['webhtml'] p0 = p0 + m end
 assert_true(string.find(p0, "Scale (мл/тик)") >= 0, "current scale shown while off (no calibration yet)")
-assert_true(string.find(p0, "Последняя калибровка") < 0, "no last-calibration row before the first calibration")
+assert_true(string.find(p0, "Последняя калибровка: &mdash;") >= 0, "no calibration yet -> last-calibration placeholder row")
+assert_true(string.find(p0, "Scale: &mdash;") >= 0, "no calibration yet -> stats placeholder row")
 assert_true(string.find(p0, "name='set' value='1'") >= 0, "direct scale-entry form present while off")
 assert_true(string.find(p0, "action='?") < 0, "no command args in form actions while off")
 
@@ -493,12 +498,25 @@ wp1.page_service()
 var pdone = ""
 for m: SIM['webhtml'] pdone = pdone + m end
 assert_true(string.find(pdone, "Последний прогон: канал 1") >= 0, "last-run row present after OFF")
+assert_true(string.find(pdone, "250 тиков (250.0 тиков/мин)") >= 0, "run stats split into the first row")
+assert_true(string.find(pdone, "При текущем scale: 1000.0 мл, ") >= 0, "run volume leads the second row")
 assert_true(string.find(pdone, "средний расход <b>1000.0 ml/min</b>") >= 0, "average run flow (250 ticks * 4.0 / 60s)")
-assert_true(string.find(pdone, "окончание 2023-01-01 10:00:00") >= 0, "run end date/time shown")
+assert_true(string.find(pdone, "Окончание 2023-01-01 10:00:00") >= 0, "run end date/time shown")
 assert_true(string.find(pdone, "setTimeout") < 0, "auto-reload JS gone after the run")
 assert_true(string.find(pdone, "<legend>Прогон</legend>") < 0, "live run fieldset gone after the run")
 
+# a near-instant run: duration is known (0.0 с), rates are unknown dashes
+wp1.ServiceResult = {'num': 2, 'ticks': 5, 'millis': 0, 'finished': SIM['rtc_local']}
+SIM['webhtml'] = list()
+wp1.page_service()
+var pzero = ""
+for m: SIM['webhtml'] pzero = pzero + m end
+assert_true(string.find(pzero, "Последний прогон: канал 2, 0.0 с, 5 тиков (&mdash; тиков/мин)") >= 0, "instant run: duration shown, tick rate unknown")
+assert_true(string.find(pzero, "средний расход <b>&mdash; ml/min</b>") >= 0, "average flow unknown for a zero-duration run")
+assert_true(string.find(pzero, "Окончание 2023-01-01 10:00:00") >= 0, "end timestamp still shown for an instant run")
+
 # restore: mode off, default scale
 wp1.ServiceMode = false
+wp1.ServiceResult = nil
 F0.setScale(0.1449)
 SIM['timers'] = map()
