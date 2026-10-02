@@ -1656,9 +1656,19 @@ class Watering
         #self.read_tds()
         import json
         import math
-        var tmp = tasmota.read_sensors()
-        var sensors = json.load(tmp)
-        if sensors == nil
+        var tmp
+        var sensors
+        try
+            tmp = tasmota.read_sensors()
+            sensors = json.load(tmp)
+            if sensors == nil
+                return
+            end
+        except .. as _boot_read_exc
+            # Same early-boot protection as get_sensors(): right after the
+            # load the firmware's own drivers can still be coming up and
+            # read_sensors() may throw through the FUNC_JSON_APPEND dispatch.
+            # Skip this tick; the next one will read normally.
             return
         end
         for s: self.SoilSensors
