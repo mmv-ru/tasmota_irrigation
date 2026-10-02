@@ -12,7 +12,7 @@ assert_eq(wp1.Store.get('P2DryThreshold'), '820', "P2 DryThreshold default")
 
 # set a channel-1-only threshold: channel 2 must be untouched
 SIM['cmds'] = list()
-P1.SoilSensor.SetDry(860)
+P1.SetDry(860)
 assert_eq(wp1.Store.get('P1TargetDry'), 860, "P1 TargetDry updated")
 assert_eq(wp1.Store.get('P2TargetDry'), '800', "P2 TargetDry still default")
 
@@ -23,8 +23,8 @@ wp1.deinit()
 wp1 = Watering()
 P1 = wp1.plants[0]
 P2 = wp1.plants[1]
-assert_eq(P1.SoilSensor.RawDry, 860, "P1 restored its own threshold")
-assert_eq(P2.SoilSensor.RawDry, 800, "P2 keeps its own threshold")
+assert_eq(P1.TargetDry, 860, "P1 restored its own threshold")
+assert_eq(P2.TargetDry, 800, "P2 keeps its own threshold")
 
 section("per_channel_dry_threshold_restores")
 

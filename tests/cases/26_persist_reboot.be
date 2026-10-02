@@ -6,8 +6,8 @@ import json
 section("calibration_survives_reboot")
 
 persist.saves = 0
-wp1.SoilSensors[0].Dry = 60
-wp1.SoilSensors[0].Wet = 55
+assert_true(wp1.plants[0].SetDry(970), "SetDry accepted (gap 970-760>20)")
+assert_true(wp1.plants[0].SetWet(930), "SetWet accepted (gap 970-930>20)")
 var saved_dry = persist.find("P1TargetDry")
 var saved_wet = persist.find("P1TargetWet")
 assert_true(saved_dry != nil, "TargetDry written before reboot")
@@ -18,17 +18,19 @@ var saves_before_deinit = persist.saves
 wp1.deinit()
 assert_true(persist.saves > saves_before_deinit, "deinit flushed persist (save)")
 wp1 = Watering()
-assert_eq(wp1.SoilSensors[0].RawDry, int(saved_dry), "RawDry restored from persistence")
-assert_eq(wp1.SoilSensors[0].RawWet, int(saved_wet), "RawWet restored from persistence")
+assert_eq(wp1.plants[0].TargetDry, int(saved_dry), "TargetDry restored from persistence")
+assert_eq(wp1.plants[0].TargetWet, int(saved_wet), "TargetWet restored from persistence")
 
 section("prev_session_stats_survive_reboot")
 
-# dry enough to pass the auto_flood guard (RawDry comes from persisted 60%)
+# dry enough to pass the auto_flood guard (TargetDry comes from persisted 970).
+# TargetWet=930 sits above the freshly-seeded EMA (~900.66) so start_flood's
+# dry-guard skips and no dose is planned yet, as in the pre-refactor contract.
 SIM['sensors']['ANALOG']['A1'] = 1100
 wp1.plants[0].DryThreshold = 9999
 wp1.plants[0].PauseSoilMaxStat = true
 wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
-assert_true(wp1.SoilSensors[0].IsDry(), "precondition: soil reads dry")
+assert_true(wp1.plants[0].IsDry(), "precondition: soil reads dry")
 
 # snapshot current session stats into persist, as auto_flood does on start
 wp1.plants[0].SoilHPreFlood = 812
@@ -38,9 +40,9 @@ wp1.auto_flood()
 assert_true(persist.has('P1PrevSoilHPreFlood'), "PrevSoilHPreFlood written during auto_flood")
 assert_true(persist.has('P1SoilHPreFlood'), "SoilHPreFlood written during auto_flood")
 assert_true(persist.has('P1LastFloodVol'), "LastFloodVol written during auto_flood")
-# start_flood() dry-guard: right after reboot the EMA is still below RawWet
-# (seeded low, rising toward the sample), so the pump start is skipped and no
-# dose is planned yet. Persisted stats are unaffected.
+# start_flood() dry-guard: right after reboot the EMA is still below TargetWet
+# (seeded from the boot sample ~900, rising toward the sample), so the pump
+# start is skipped and no dose is planned yet. Persisted stats are unaffected.
 assert_eq(wp1.plants[0].PlannedFlood, nil, "no plan while EMA below wet threshold")
 
 wp1.deinit()

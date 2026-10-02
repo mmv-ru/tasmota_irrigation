@@ -1,20 +1,22 @@
-# Characterization: TargetDry/TargetWet persisted via PersistStore on Dry/Wet
-# calibration. Writes are debounced: values land in the persist map immediately,
-# the save() to Flash is deferred until the 15s timer or an explicit flush.
+# Characterization: TargetDry/TargetWet persisted via PersistStore on
+# Plant.SetDry/SetWet. Writes are debounced: values land in the persist map
+# immediately, the save() to Flash is deferred until the 15s timer or an
+# explicit flush.
 import json
 
-section("setmember_dry_wet_persist_kall")
+section("plant_setdry_wet_persist")
 
-# manual calibration via virtual member: sensor.Dry = 60 (humidity %)
+# thresholds set via the Plant API (raw values); Store key per channel
+var p = wp1.plants[0]
 persist.saves = 0
-wp1.SoilSensors[0].Dry = 60
-assert_true(persist.has('P1TargetDry'), "TargetDry written to persist map after Dry calibration")
+assert_true(p.SetDry(900), "SetDry accepted (gap 900-760>20)")
+assert_true(persist.has('P1TargetDry'), "TargetDry written to persist map after SetDry")
 assert_eq(persist.saves, 0, "no immediate save: write is debounced")
-assert_true(wp1.Store.Dirty, "store marked dirty after Dry calibration")
+assert_true(wp1.Store.Dirty, "store marked dirty after SetDry")
 assert_true(SIM['timers'].find("ID_PERSIST_SAVE") != nil, "debounce save timer armed")
 
-wp1.SoilSensors[0].Wet = 55
-assert_true(persist.has('P1TargetWet'), "TargetWet written to persist map after Wet calibration")
+assert_true(p.SetWet(750), "SetWet accepted (gap 900-750>20)")
+assert_true(persist.has('P1TargetWet'), "TargetWet written to persist map after SetWet")
 assert_eq(persist.saves, 0, "Wet calibration still deferred (no save yet)")
 
 wp1.Store.flush()
@@ -24,8 +26,8 @@ assert_true(SIM['timers'].find("ID_PERSIST_SAVE") == nil, "save timer cleared af
 
 section("dry_wet_reflect_persisted_scale")
 
-# persist stores raw values; init() assigns them verbatim to RawDry/RawWet
-assert_eq(wp1.SoilSensors[0].RawDry, persist.find("P1TargetDry"), "RawDry reflects persisted TargetDry")
-assert_eq(wp1.SoilSensors[0].RawWet, persist.find("P1TargetWet"), "RawWet reflects persisted TargetWet")
+# persist stores raw values; init() assigns them verbatim to Plant.TargetDry/TargetWet
+assert_eq(p.TargetDry, persist.find("P1TargetDry"), "TargetDry reflects persisted value")
+assert_eq(p.TargetWet, persist.find("P1TargetWet"), "TargetWet reflects persisted value")
 
 # ---------------- finished ----------------

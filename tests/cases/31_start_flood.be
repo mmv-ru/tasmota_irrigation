@@ -12,7 +12,7 @@ section("start_flood_dry_starts")
 # dry-soak path (covered by 33_dry_soak).
 wp1.plants[0].DryThreshold = 9999
 wp1.plants[0].Preset = nil
-wp1.SoilSensors[0].RawWet = 750
+wp1.plants[0].TargetWet = 750
 wp1.SoilSensors[0].RawEma = 850
 SIM['cmds'] = list()
 wp1.plants[0].PlannedFlood = nil
@@ -28,7 +28,7 @@ section("start_flood_uses_prev_estimate")
 wp1.plants[0].PrevFloodedVol = 350
 wp1.plants[0].PrevSoilHPreFlood = 900
 wp1.plants[0].PrevSoilMaxHymidity = 820
-wp1.SoilSensors[0].RawWet = 800
+wp1.plants[0].TargetWet = 800
 wp1.SoilSensors[0].RawEma = 850
 SIM['cmds'] = list()
 wp1.plants[0].start_flood()

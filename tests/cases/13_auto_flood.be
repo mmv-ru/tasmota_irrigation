@@ -9,7 +9,7 @@ section("auto_flood_dry_starts")
 wp1.plants[0].DryThreshold = 9999
 SIM['sensors']['ANALOG']['A1'] = 900
 wp1.SoilSensors[0].Update(json.load(tasmota.read_sensors()))
-assert_true(wp1.SoilSensors[0].IsDry(), "sensor dry")
+assert_true(wp1.plants[0].IsDry(), "sensor dry")
 
 wp1.auto_flood()
 

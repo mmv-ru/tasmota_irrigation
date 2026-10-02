@@ -54,7 +54,7 @@ section("rule_button1_starts_flood")
 wp1.plants[0].DryThreshold = 9999
 wp1.plants[0].Preset = nil
 SIM['cmds'] = list()
-wp1.SoilSensors[0].RawWet = 750
+wp1.plants[0].TargetWet = 750
 wp1.SoilSensors[0].RawEma = 850
 wp1.rule_button1({'Action': 'SINGLE'}, 'BUTTON1')
 assert_true(cmds_include("Power1 1"), "single press starts flood when dry")

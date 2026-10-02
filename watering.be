@@ -299,7 +299,7 @@ class SoilSensor: AbstractSensor
         if self.RawEma != nil
             msg = msg .. wpill("raw", string.format("%01.2f", self.RawEma))
         end
-        msg = msg .. wpill("сухо", str(self.RawDry)) .. wpill("влажно", str(self.RawWet)) .. "</span>" ..
+        msg = msg .. wpill("сухо", str(plant.TargetDry)) .. wpill("влажно", str(plant.TargetWet)) .. "</span>" ..
                     "</th><td class='tgl'><a class='chev' href='#' " .. wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
         # Expanded rows (Уставки/Датчик/settings button) live in
         # Watering.web_soil_detail — one method owns the whole channel detail.
@@ -766,6 +766,8 @@ class Plant
     var ServiceRun
     var Preset
     var DryThreshold
+    var TargetDry
+    var TargetWet
     var DrySoakDose
     var DrySoakStartMillis
     var DryEmaHistory
@@ -779,8 +781,8 @@ class Plant
         self.Prefix = 'P' + str(self.Num)
         self.Store = owner.Store
         self.SoilSensor = owner.SoilSensors[idx]
-        self.SoilSensor.RawDry = int(self.Store.get(self.Prefix .. 'TargetDry'))
-        self.SoilSensor.RawWet = int(self.Store.get(self.Prefix .. 'TargetWet'))
+        self.TargetDry = int(self.Store.get(self.Prefix .. 'TargetDry'))
+        self.TargetWet = int(self.Store.get(self.Prefix .. 'TargetWet'))
         self.DryThreshold = int(self.Store.get(self.Prefix .. 'DryThreshold'))
         for p: ['SoilHPreFlood',
                 'SoilMaxHymidity', 'SoilMaxHymidityTime',
@@ -833,7 +835,49 @@ class Plant
     def due()
         # Derived "wants a fill right now": soil dry by RAW, no session running.
         # Re-computed on every sweep; there is no persistent queue.
-        return self.SoilSensor.IsDry() && !self.AutofloodInProcess
+        return self.IsDry() && !self.AutofloodInProcess
+    end
+
+    def IsDry()
+        # Soil counts as dry at/above the per-channel dry threshold. Thresholds
+        # are Plant-owned policy; the sensor only measures. Nil-safe: no
+        # reading -> not dry.
+        return self.SoilSensor.Raw != nil && self.SoilSensor.Raw >= self.TargetDry
+    end
+
+    def IsWet()
+        # Soil counts as wet at/below the per-channel wet threshold.
+        return self.SoilSensor.Raw != nil && self.SoilSensor.Raw <= self.TargetWet
+    end
+
+    def SetDry(raw)
+        var r = int(raw)
+        if r == nil || r <= 0
+            print("Plant: SetDry rejected, bad raw " .. str(raw) .. " -> " .. str(r))
+            return false
+        end
+        if r - self.TargetWet <= 20
+            print("Plant: SetDry rejected, gap " .. r .. "-" .. self.TargetWet .. " <= 20")
+            return false
+        end
+        self.TargetDry = r
+        self.Store.set(self.Prefix .. 'TargetDry', self.TargetDry)
+        return true
+    end
+
+    def SetWet(raw)
+        var r = int(raw)
+        if r == nil || r <= 0
+            print("Plant: SetWet rejected, bad raw " .. str(raw) .. " -> " .. str(r))
+            return false
+        end
+        if self.TargetDry - r <= 20
+            print("Plant: SetWet rejected, gap " .. self.TargetDry .. "-" .. r .. " <= 20")
+            return false
+        end
+        self.TargetWet = r
+        self.Store.set(self.Prefix .. 'TargetWet', self.TargetWet)
+        return true
     end
 
     def WaterIsOn()
@@ -872,7 +916,7 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
         end
         self.PumpStartMillis = tasmota.millis()
         print("Water pump " .. str(self.Num) .. " ON")
-        if self.SoilSensor.IsWet()
+        if self.IsWet()
             print("Too wet to flood. Stop pump.")
             tasmota.set_power(self.Num - 1, false)
             return
@@ -1071,7 +1115,7 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
         # Classic repeat-flood evaluation (normal preset / no-preset fallback):
         # soil still dry -> escalate Counter1FloodDefault and ask the dispatcher
         # to flood again, else the flooding session finished.
-        if self.SoilSensor.Raw > (self.SoilSensor.RawDry + self.SoilSensor.RawWet)/2
+        if self.SoilSensor.Raw > (self.TargetDry + self.TargetWet)/2
             print("Autofloood: Wet lewel not reached. Repeat flooding")
             # TODO: increment Default
             self.Counter1FloodDefault = self.Counter1FloodDefault * 1.2
@@ -1094,9 +1138,9 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
         # TODO: Add fast water calibration here
         # Fast water calibration: flood more if necessary
         print({ "Raw": self.SoilSensor.Raw,
-                "RawDry": self.SoilSensor.RawDry,
-                "RawWet": self.SoilSensor.RawWet,
-                "Dry50": (self.SoilSensor.RawDry + self.SoilSensor.RawWet)/2
+                "RawDry": self.TargetDry,
+                "RawWet": self.TargetWet,
+                "Dry50": (self.TargetDry + self.TargetWet)/2
               })
         var result = nil
         if self.Preset != nil
@@ -1130,8 +1174,8 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
         # Planned flood dose + pump ON. Shared entry point for session start,
         # repeat flooding and the manual button. Only acts when the soil is
         # actually dry by EMA, so a wet reading cannot turn the pump on.
-        if !(self.SoilSensor.RawEma > self.SoilSensor.RawWet)
-            print("start_flood: soil not dry (RawEma<=RawWet), skip")
+        if !(self.SoilSensor.RawEma > self.TargetWet)
+            print("start_flood: soil not dry (RawEma<=TargetWet), skip")
             return
         end
         # No preset yet (manual button) -> choose one by current dryness.
@@ -1200,7 +1244,7 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
             # Оценка строится на последней завершённой сессии (Prev*), которая копируется
             # из текущих полей до начала новой сессии и персистится при старте auto_flood.
             var LastFloodDRaw = self.PrevSoilHPreFlood - self.PrevSoilMaxHymidity
-            var CurDRaw = self.SoilSensor.RawEma - self.SoilSensor.RawWet
+            var CurDRaw = self.SoilSensor.RawEma - self.TargetWet
             var EstimatedFlood = real(self.PrevFloodedVol)*CurDRaw/LastFloodDRaw
             if EstimatedFlood < 15
                 # estimate too small for a meaningful dose (~15 ml) -> nil (use
@@ -1570,11 +1614,11 @@ class Watering
             # never "set to 0" (int("") == 0 would reset the threshold).
             # Affects channel 1 (the primary zone).
             if payload == nil || payload == ""
-                tasmota.resp_cmnd_str(str(self.SoilSensors[0].RawDry))
+                tasmota.resp_cmnd_str(str(self.plants[0].TargetDry))
                 return
             end
             try
-                if self.SoilSensors[0].SetDry(int(payload))
+                if self.plants[0].SetDry(int(payload))
                     tasmota.resp_cmnd_done()
                 else
                     tasmota.resp_cmnd_error()
@@ -1588,11 +1632,11 @@ class Watering
         tasmota.add_cmd("SoilWet", def (cmd, idx, payload, payload_json)
             # Empty payload means "report current value", not "set to 0".
             if payload == nil || payload == ""
-                tasmota.resp_cmnd_str(str(self.SoilSensors[0].RawWet))
+                tasmota.resp_cmnd_str(str(self.plants[0].TargetWet))
                 return
             end
             try
-                if self.SoilSensors[0].SetWet(int(payload))
+                if self.plants[0].SetWet(int(payload))
                     tasmota.resp_cmnd_done()
                 else
                     tasmota.resp_cmnd_error()
@@ -2279,8 +2323,8 @@ class Watering
             msg = msg .. string.format(
                 wrow("Сухо", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>") ..
                 wrow("Влажно", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>"),
-                ss.RawDry, ss.Raw2Hu(ss.RawDry),
-                ss.RawWet, ss.Raw2Hu(ss.RawWet)
+                plant.TargetDry, ss.Raw2Hu(plant.TargetDry),
+                plant.TargetWet, ss.Raw2Hu(plant.TargetWet)
                 )
             # Per-channel settings button: opens the JS popup with this channel's
             # Soil Dry/Wet, Dry threshold, Soak start dose, Max flood and flood
@@ -2292,11 +2336,11 @@ class Watering
                 wrow("Настройки порогов",
                      "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' data-maxflood='%i' data-c1def='%i' " ..
                      wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
-                num, ss.RawDry, ss.RawWet,
+                num, plant.TargetDry, plant.TargetWet,
                 plant.DryThreshold,
-                str(int(real(ss.Store.get(ss.Prefix .. 'SoakStartDose')))),
-                int(real(ss.Store.get(ss.Prefix .. 'MaxFlood'))),
-                int(real(ss.Store.get(ss.Prefix .. 'Counter1FloodDefault'))))
+                str(int(real(self.Store.get(plant.Prefix .. 'SoakStartDose')))),
+                int(real(self.Store.get(plant.Prefix .. 'MaxFlood'))),
+                int(real(self.Store.get(plant.Prefix .. 'Counter1FloodDefault'))))
             msg = msg .. wgrp("Датчик")
             # Values may be nil until the first sensor Update (unconnected
             # channels). Guard each one: show "nil" instead of crashing the
@@ -2437,22 +2481,21 @@ class Watering
             # adding a field = one row here + one in _wdF.
             for i: 1..self.NumChannels
                 var s = str(i)
-                var ss = self.SoilSensors[i - 1]
                 var pl = self.plants[i - 1]
                 var sfx = i == 1 ? "" : "_" .. s
-                # Dry/Wet are validated by the sensor (gap > 20). Dry threshold,
+                # Dry/Wet are validated by the plant (gap > 20). Dry threshold,
                 # soak dose, Max flood and flood dose default are plain int > 0
                 # stored on the plant / Store.
                 if webserver.has_arg("m_soildry" .. sfx)
-                    if ss.SetDry(int(webserver.arg("m_soildry" .. sfx)))
-                        print("web_sensor: channel " .. s .. " Soil Dry threshold set to " .. ss.RawDry)
+                    if pl.SetDry(int(webserver.arg("m_soildry" .. sfx)))
+                        print("web_sensor: channel " .. s .. " Soil Dry threshold set to " .. pl.TargetDry)
                     else
                         print("web_sensor: channel " .. s .. " Soil Dry threshold rejected")
                     end
                 end
                 if webserver.has_arg("m_soilwet" .. sfx)
-                    if ss.SetWet(int(webserver.arg("m_soilwet" .. sfx)))
-                        print("web_sensor: channel " .. s .. " Soil Wet threshold set to " .. ss.RawWet)
+                    if pl.SetWet(int(webserver.arg("m_soilwet" .. sfx)))
+                        print("web_sensor: channel " .. s .. " Soil Wet threshold set to " .. pl.TargetWet)
                     else
                         print("web_sensor: channel " .. s .. " Soil Wet threshold rejected")
                     end

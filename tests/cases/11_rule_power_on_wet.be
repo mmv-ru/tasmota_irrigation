@@ -9,7 +9,7 @@ SIM['millis'] = 1000
 import json
 var snap = json.load(tasmota.read_sensors())
 wp1.SoilSensors[0].Update(snap)
-assert_true(wp1.SoilSensors[0].IsWet(), "sensor sees wet soil")
+assert_true(wp1.plants[0].IsWet(), "sensor sees wet soil")
 
 tasmota.set_power(0, true)
 wp1.rule_power({'State': 1}, 'POWER1')

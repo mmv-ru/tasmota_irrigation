@@ -11,7 +11,7 @@ section("estimate_normal")
 wp1.plants[0].PrevFloodedVol = 350
 wp1.plants[0].PrevSoilHPreFlood = 900
 wp1.plants[0].PrevSoilMaxHymidity = 820
-wp1.SoilSensors[0].RawWet = 800
+wp1.plants[0].TargetWet = 800
 wp1.SoilSensors[0].RawEma = 850
 var est = wp1.plants[0].estimateflood()
 assert_eq(est, 218, "linear estimate rounded down")

@@ -6,8 +6,11 @@ import json
 section("soil_init_fields")
 
 var ss = wp1.SoilSensors[0]
-assert_eq(ss.RawDry, 800, "RawDry default 800")
-assert_eq(ss.RawWet, 760, "RawWet default 760 (init persist default)")
+var pl = wp1.plants[0]
+# Dry/Wet thresholds are Plant policy (per-channel, restored from Store);
+# the sensor only measures. Store defaults land on the Plant.
+assert_eq(pl.TargetDry, 800, "TargetDry default 800 (store default on Plant)")
+assert_eq(pl.TargetWet, 760, "TargetWet default 760 (store default on Plant)")
 assert_eq(ss.EMAN, 600, "EMAN default 600")
 assert_eq(ss.ScaleMinRAW, 842, "scale min raw 842")
 assert_eq(ss.ScaleMaxRAW, 1105, "scale max raw 1105")
