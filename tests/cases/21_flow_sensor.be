@@ -74,12 +74,14 @@ assert_eq(stored, 0.1449, "fresh init uses the built-in default scale")
 wp1.Store.set('FlowScale', '0.25')
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 assert_eq(wp1.FlowSensors[0].Scale, 0.25, "stored FlowScale applied on init")
 
 # corrupt persisted value falls back to the built-in scale
 persist.FlowScale = 'abc'
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 assert_eq(wp1.FlowSensors[0].Scale, 0.1449, "corrupt stored scale falls back to built-in")
 
 # ---------------- finished ----------------

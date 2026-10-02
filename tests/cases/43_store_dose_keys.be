@@ -24,6 +24,7 @@ introspect.set(persist, 'P2MaxFlood', '900')
 
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 P1 = wp1.plants[0]
 assert_eq(P1.MaxFlood, 500, "P1 MaxFlood read from Store after reboot")
 assert_eq(P1.Counter1FloodDefault, 60, "P1 flood dose default read from Store")

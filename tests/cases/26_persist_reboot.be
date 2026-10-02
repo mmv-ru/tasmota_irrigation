@@ -18,6 +18,7 @@ var saves_before_deinit = persist.saves
 wp1.deinit()
 assert_true(persist.saves > saves_before_deinit, "deinit flushed persist (save)")
 wp1 = Watering()
+wp1.init_sensors()
 assert_eq(wp1.plants[0].TargetDry, int(saved_dry), "TargetDry restored from persistence")
 assert_eq(wp1.plants[0].TargetWet, int(saved_wet), "TargetWet restored from persistence")
 
@@ -47,6 +48,7 @@ assert_eq(wp1.plants[0].PlannedFlood, nil, "no plan while EMA below wet threshol
 
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 assert_eq(wp1.plants[0].PrevSoilHPreFlood, 812, "PrevSoilHPreFlood restored after reboot")
 assert_eq(wp1.plants[0].PrevSoilMaxHymidity, 805, "PrevSoilMaxHymidity restored after reboot")
 assert_true(persist.has('P1PrevFloodedVol'), "PrevFloodedVol persisted by auto_flood")
@@ -84,6 +86,7 @@ wp1.Store.set('P1LastFlowRate', 500.0)
 wp1.Store.flush(true)
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 var p1b = wp1.plants[0]
 assert_eq(p1b.LastFloodTime, SIM['rtc_local'], "LastFloodTime restored after reboot")
 assert_eq(p1b.LastFlowRate, 500.0, "LastFlowRate restored after reboot")

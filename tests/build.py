@@ -48,7 +48,16 @@ def build(case_path: Path) -> Path:
     header = (TESTS / "harness_header.be").read_text()
     watering = (ROOT / "watering.be").read_text()
     case = case_path.read_text()
-    combined_text = "\n".join([header, watering, case])
+    # Test boot shim: watering.be's init() defers init_sensors() to the
+    # ID_DELAY_INIT timer (early-boot read_sensors() may throw). The harness
+    # does not fire timers, so emulate "timer fired" right after the script
+    # body creates wp1 -> phase 2 runs, every case sees a fully initialized
+    # driver (as a real device would after ~4 s of uptime).
+    boot_shim = (
+        '\n# test boot: emulate the ID_DELAY_INIT timer firing - run phase 2\n'
+        'wp1.init_sensors()\n'
+    )
+    combined_text = "\n".join([header, watering, boot_shim, case])
     combined_text = combined_text.replace("\ufeff", "")
     combined.write_text(combined_text)
     # copy module stubs next to test script

@@ -37,6 +37,7 @@ introspect.set(persist, 'P2SoakStartDose', '50')
 
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 P1 = wp1.plants[0]
 var P2 = wp1.plants[1]
 
@@ -55,6 +56,7 @@ section("migration_is_idempotent")
 # a second re-init must not re-convert (already-ml values are no longer ticks)
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 P1 = wp1.plants[0]
 assert_eq(wp1.Store.get('P1SoakStartDose'), 40, "no double conversion on re-init")
 assert_eq(P1.LastFloodVol, 800, "LastFloodVol not multiplied twice")
@@ -68,6 +70,7 @@ for k: ['P1SoakStartDose', 'P1SoakDailyCap', 'P1SoakMaxDose', 'P1LastFloodVol', 
 end
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 P1 = wp1.plants[0]
 assert_eq(wp1.Store.get('P1SoakStartDose'), '15', "fresh device keeps the ml default")
 assert_eq(wp1.Store.get('P1PrevFloodedVol'), nil, "fresh device has no prev stats")

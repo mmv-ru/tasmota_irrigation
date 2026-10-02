@@ -8,6 +8,14 @@ import string
 # flow counter C1, so fills are strictly serialised (one at a time).
 var MAX_CHANNELS = 4
 
+# Deferred phase-2 init delay (ms). On early boot the firmware's own sensor
+# drivers are still coming up and read_sensors() can throw through the
+# FUNC_JSON_APPEND dispatch during the first ~1.7 s of uptime (WiFi connects
+# ~3.7 s). Watering init() arms a one-shot timer with this delay instead of
+# calling init_sensors() synchronously, so the first read happens ~4.3 s in —
+# outside the crash window (pattern: xsns_34_hx711 "Fix power on init").
+var BOOT_INIT_DELAY_MS = 4000
+
 def EMA(oldEMA, N, NewValue)
     import math
 #    return (math.floor(oldEMA*(N - 1)*10.0) + NewValue*10.0) / (N*10)
@@ -1212,6 +1220,7 @@ class Watering
     var FlowRateLimit
     var OutOfWater
     var UnwaterSeconds
+    var _initialized
 
 
     def button_pressed(cmd, idx, payload, raw)
@@ -1431,7 +1440,15 @@ class Watering
         # Upgrade persisted values from C1 ticks to ml BEFORE the plants read
         # them (plants are created in init_sensors()).
         self._migrate_units(real(self.Store.get('FlowScale')))
-        self.init_sensors()
+        # Phase 2 of init is deferred: init_sensors() reads sensors, creates
+        # plants and registers the driver + commands/cron. Running it here,
+        # synchronously at script load, puts read_sensors() inside the early
+        # boot window where the firmware's own sensor drivers may still be
+        # coming up and the read throws through the FUNC_JSON_APPEND dispatch.
+        # Arm a one-shot timer instead (non-blocking; ID_DELAY_INIT is then
+        # reused by init_sensors()' retry loop if the first read still fails).
+        self._initialized = false
+        tasmota.set_timer(BOOT_INIT_DELAY_MS, /-> self.init_sensors(), "ID_DELAY_INIT")
     end
 
     def _migrate_units(mscale)
@@ -1461,6 +1478,12 @@ class Watering
     end
 
     def init_sensors()
+        # Idempotency: phase 2 may be invoked by the ID_DELAY_INIT timer, by a
+        # hot reload retry, or (in tests) directly. Exit immediately if phase 2
+        # already completed.
+        if self._initialized
+            return
+        end
         # Retry reading sensors until Tasmota has booted. On real boot the read
         # may throw; catch it and retry via a non-blocking timer instead of
         # failing the whole load(). In tests/runtime read succeeds immediately.
@@ -1478,7 +1501,7 @@ class Watering
                 tasmota.set_timer(1000, /-> self.init_sensors(), "ID_DELAY_INIT")
             else
                 print("Giving up on delayed sensor init")
-                print("WARNING: Watering driver NOT registered (sensors never came up)")
+                print("ERROR: Watering driver NOT registered (sensors never came up)")
             end
             return
         end
@@ -1620,6 +1643,13 @@ class Watering
             tasmota.resp_cmnd_str("Channels set to " .. str(n) .. ", restart required")
         end)
         print("Command Store initialized")
+        # The ID_DELAY_INIT timer has served its purpose (this run, or the
+        # build.py test shim): drop the pending callback. Harmless on the
+        # device (one-shot timer already fired); breaks the closure cycle so
+        # test VMs garbage-collect cleanly on exit.
+        tasmota.remove_timer("ID_DELAY_INIT")
+        self._initialized = true
+        print("Watering driver initialized")
     end
 
     def deinit()
@@ -2564,7 +2594,6 @@ end
 
 print("Add new Watering driver")
 wp1 = Watering()
-print("Watering driver initialized")
 # tasmota.cmd("BrRestart");
 
 

@@ -21,6 +21,7 @@ section("reboot_restores_each_channel")
 wp1.Store.flush(true)
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 P1 = wp1.plants[0]
 P2 = wp1.plants[1]
 assert_eq(P1.TargetDry, 860, "P1 restored its own threshold")
@@ -33,6 +34,7 @@ assert_eq(wp1.Store.get('P2DryThreshold'), '820', "P2 DryThreshold untouched")
 wp1.Store.flush(true)
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 P1 = wp1.plants[0]
 P2 = wp1.plants[1]
 assert_eq(P1.DryThreshold, 900, "P1 DryThreshold restored")

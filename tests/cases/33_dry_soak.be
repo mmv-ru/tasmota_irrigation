@@ -167,6 +167,7 @@ assert_eq(P1.DryThreshold, 820, "DryThreshold default from store")
 wp1.Store.set('P1DryThreshold', 900)
 wp1.deinit()
 wp1 = Watering()
+wp1.init_sensors()
 P1 = wp1.plants[0]
 assert_eq(P1.DryThreshold, 900, "DryThreshold restored from persistence")
 
