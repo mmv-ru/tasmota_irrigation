@@ -66,7 +66,20 @@ class AbstractSensor
 
     static def get_sensors()
         import json
-        return json.load(tasmota.read_sensors())
+        # On real hardware an early-boot read_sensors() may throw while the
+        # firmware's own berry drivers are still coming up (framework event
+        # dispatch during FUNC_JSON_APPEND). A failed read must not abort the
+        # whole load(): return nil and let the periodic updates fill the value
+        # on a later cycle (Raw stays nil, Update() ignores it).
+        try
+            var raw = tasmota.read_sensors()
+            if raw == nil
+                return nil
+            end
+            return json.load(raw)
+        except .. as _boot_read_exc
+            return nil
+        end
     end
 
     def Update(sensors)
