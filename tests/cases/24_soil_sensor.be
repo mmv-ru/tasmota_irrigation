@@ -1,6 +1,6 @@
 # Characterization: SoilSensor raw-side behaviour: init fields, Update/EMA,
-# IsDry/IsWet thresholds, N/C status. Conversion/calibration (%, mV, Hu)
-# methods are excluded (web-only / inactive).
+# N/C status, conversion/calibration (%, mV, Hu). Dry/Wet thresholds and the
+# IsDry/IsWet guards live on Plant (per-channel policy) and are covered here.
 import json
 
 section("soil_init_fields")
@@ -57,22 +57,23 @@ ss.Update(json.load(tasmota.read_sensors()))
 assert_eq(ss.Status, "N/C", "raw<2 marks N/C")
 assert_eq(real(ss.RawEma), before_nc, "EMA frozen while N/C")
 
-section("soil_is_dry_wet_thresholds")
+section("plant_is_dry_wet_thresholds")
 
-# IsDry: Raw >= RawDry ; dry equality armed
-ss.Raw = ss.RawDry
-assert_true(ss.IsDry(), "IsDry true at RawDry boundary")
-ss.Raw = ss.RawDry - 1
-assert_true(!ss.IsDry(), "IsDry false below RawDry")
+# Plant owns the Dry/Wet thresholds: IsDry when Raw >= TargetDry.
+var pl = wp1.plants[0]
+pl.SoilSensor.Raw = pl.TargetDry
+assert_true(pl.IsDry(), "IsDry true at TargetDry boundary")
+pl.SoilSensor.Raw = pl.TargetDry - 1
+assert_true(!pl.IsDry(), "IsDry false below TargetDry")
 
-# IsWet: Raw <= RawWet
-ss.Raw = ss.RawWet
-assert_true(ss.IsWet(), "IsWet true at RawWet boundary")
-ss.Raw = ss.RawWet + 1
-assert_true(!ss.IsWet(), "IsWet false above RawWet")
+# IsWet: Raw <= TargetWet
+pl.SoilSensor.Raw = pl.TargetWet
+assert_true(pl.IsWet(), "IsWet true at TargetWet boundary")
+pl.SoilSensor.Raw = pl.TargetWet + 1
+assert_true(!pl.IsWet(), "IsWet false above TargetWet")
 
 # mid range: neither dry nor wet
-ss.Raw = (ss.RawWet + ss.RawDry) / 2
-assert_true(!ss.IsDry() && !ss.IsWet(), "mid range neither dry nor wet")
+pl.SoilSensor.Raw = (pl.TargetWet + pl.TargetDry) / 2
+assert_true(!pl.IsDry() && !pl.IsWet(), "mid range neither dry nor wet")
 
 # ---------------- finished ----------------

@@ -93,24 +93,16 @@ end
 class SoilSensor: AbstractSensor
     var RawEma
     var EMAN
-    var RawDry
-    var RawWet
     var ScaleMinRAW
     var ScaleMaxRAW
     var Raw2mVScale
     var Hu_C
-    var Store
-    var Prefix
 
-    def init(Sensor, store, prefix)
+    def init(Sensor)
         self.SensorID = ['ANALOG', Sensor]
         self.Name = 'Soil%sHymidity'
         self.setScale(842, 1105)
         self.EMAN = 600
-        self.RawDry = 800
-        self.RawWet = 750
-        self.Store = store
-        self.Prefix = prefix != nil ? prefix : ''
         # https://docs.espressif.com/projects/esp-idf/en/release-v4.4/esp32/api-reference/peripherals/adc.html
         # V = D * Vmax / Dmax
         # Tasmota has ADC_ATTEN_DB_11
@@ -178,59 +170,9 @@ class SoilSensor: AbstractSensor
         return (self.Hu_C[0] + self.Hu_C[1]*raw + self.Hu_C[2]*raw*raw)*100
     end
 
-    def SetDry(raw)
-        var r = int(raw)
-        if r == nil || r <= 0
-            print("SoilSensor: SetDry rejected, bad raw " .. str(raw) .. " -> " .. str(r))
-            return false
-        end
-        if r - self.RawWet <= 20
-            print("SoilSensor: SetDry rejected, gap " .. r .. "-" .. self.RawWet .. " <= 20")
-            return false
-        end
-        self.RawDry = r
-        if self.Store != nil
-            self.Store.set(self.Prefix .. 'TargetDry', self.RawDry)
-        else
-            import introspect
-            introspect.set(persist, 'TargetDry', self.RawDry)
-            persist.save()
-        end
-        return true
-    end
-
-    def SetWet(raw)
-        var r = int(raw)
-        if r == nil || r <= 0
-            print("SoilSensor: SetWet rejected, bad raw " .. str(raw) .. " -> " .. str(r))
-            return false
-        end
-        if self.RawDry - r <= 20
-            print("SoilSensor: SetWet rejected, gap " .. self.RawDry .. "-" .. r .. " <= 20")
-            return false
-        end
-        self.RawWet = r
-        if self.Store != nil
-            self.Store.set(self.Prefix .. 'TargetWet', self.RawWet)
-        else
-            import introspect
-            introspect.set(persist, 'TargetWet', self.RawWet)
-            persist.save()
-        end
-        return true
-    end
-
     def member(name)
         if name == 'Hymidity'
             return self.Raw2Hymidity(self.RawEma)
-        elif name == 'Dry'
-            return self.Raw2Hymidity(self.RawDry)
-        elif name == 'Wet'
-            return self.Raw2Hymidity(self.RawWet)
-        elif name == 'PRH'
-            var Scale = 100.0/(self.RawDry-self.RawWet) # (out1-out2)/(in1-in2)
-            var Offset = -self.RawWet*(100.0)/(self.RawDry-self.RawWet) # out2-In2*(out1-out2)/(in1-in2)
-            return self.Raw*Scale + Offset
         elif name == 'mV'
             return self.Raw2mV(self.Raw)
         elif name == 'Hu'
@@ -239,38 +181,6 @@ class SoilSensor: AbstractSensor
             import undefined
             return undefined
         end
-    end
-
-    def setmember(name, value)
-        if name == 'Dry'
-            self.RawDry = self.Hymidity2Raw(value)
-            if self.Store != nil
-                self.Store.set(self.Prefix .. 'TargetDry', self.RawDry)
-            else
-                import introspect
-                introspect.set(persist, 'TargetDry', self.RawDry)
-                persist.save()
-            end
-        elif name == 'Wet'
-            self.RawWet = self.Hymidity2Raw(value)
-            if self.Store != nil
-                self.Store.set(self.Prefix .. 'TargetWet', self.RawWet)
-            else
-                import introspect
-                introspect.set(persist, 'TargetWet', self.RawWet)
-                persist.save()
-            end
-        else
-            raise 'attribute_error', "the 'SoilSensor' object has no attribute '"..name.."'"
-        end
-    end
-
-    def IsDry()
-        return self.Raw != nil && self.Raw >= self.RawDry
-    end
-
-    def IsWet()
-        return self.Raw != nil && self.Raw <= self.RawWet
     end
 
     def web_sensor(expanded, sec, plant)
@@ -1567,7 +1477,7 @@ class Watering
         self.SoilSensors = list()
         self.FlowSensors = list()
         for i: 0..(self.NumChannels - 1)
-            self.SoilSensors.push(SoilSensor('A' + str(i + 1), self.Store, 'P' + str(i + 1)))
+            self.SoilSensors.push(SoilSensor('A' + str(i + 1)))
         end
         self.FlowSensors = [FlowSensor('C1'), FlowSensor('C2')]
         # Apply the stored flow calibration (overrides the built-in default).
