@@ -34,7 +34,7 @@ CRASH_PATTERNS = [
     'type_error', 'syntax_error', 'index_error',
     'stack traceback', 'undeclared',
     'Giving up on delayed sensor init',
-    'WARNING: Watering driver NOT registered',
+    'ERROR: Watering driver NOT registered',
     'MEMORY ALLOCATION FAILED',
 ]
 
