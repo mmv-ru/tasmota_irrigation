@@ -68,4 +68,22 @@ section("lastfloodvol_restored_when_written")
 # restored on boot, so the flood estimate has real last-session data.
 assert_eq(wp1.plants[0].LastFloodVol, 420, "LastFloodVol restored from persistence")
 
+section("lastflood_time_rate_survive_reboot")
+
+# _record_flood() persists the last-fill date + avg flow rate
+# (P{Num}LastFloodTime / P{Num}LastFlowRate); Plant.init() must restore them so
+# the web group "Последний полив" survives a reboot. Values written the same
+# way _record_flood() does (Store.set, debounced policy).
+var p1 = wp1.plants[0]
+p1.LastFloodTime = SIM['rtc_local']
+p1.LastFlowRate = 500.0
+wp1.Store.set('P1LastFloodTime', SIM['rtc_local'])
+wp1.Store.set('P1LastFlowRate', 500.0)
+wp1.Store.flush(true)
+wp1.deinit()
+wp1 = Watering()
+var p1b = wp1.plants[0]
+assert_eq(p1b.LastFloodTime, SIM['rtc_local'], "LastFloodTime restored after reboot")
+assert_eq(p1b.LastFlowRate, 500.0, "LastFlowRate restored after reboot")
+
 # ---------------- finished ----------------

@@ -14,6 +14,8 @@ assert_eq(st.get('P1TargetWet'), '760', "P1TargetWet default from registry")
 assert_eq(st.get('P1LastFloodVol'), '0', "P1LastFloodVol default from registry")
 assert_eq(st.get('P1SoilHPreFlood'), nil, "session key defaults to nil")
 assert_eq(st.get('P1PrevSoilHPreFlood'), nil, "prev session key defaults to nil")
+assert_eq(st.get('P1LastFloodTime'), nil, "last-flood time defaults to nil (until first flood)")
+assert_eq(st.get('P1LastFlowRate'), nil, "last-flood rate defaults to nil (until first flood)")
 assert_true(st.Shadow.find('P1TargetDry') == '800', "Shadow seeded from default")
 assert_true(!st.Dirty, "store clean after load")
 

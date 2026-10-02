@@ -1,6 +1,7 @@
 import webserver
 import strict
 import persist
+import string
 
 # Maximum number of irrigation channels (2..4). Each channel owns one pump
 # relay (Power1..PowerN) and one soil sensor (A1..AN); all channels share the
@@ -273,7 +274,6 @@ class SoilSensor: AbstractSensor
     end
 
     def web_sensor(expanded, sec, plant)
-        import string
         var msg
         var nm = "Канал " .. str(plant.Num)
         var arrow = expanded ? "▲" : "▼"
@@ -355,7 +355,6 @@ class FlowSensor: AbstractSensor
     end
 
     def Reset()
-      import string
       tasmota.cmd(string.format('Counter%s 0', self.SensorID[1][1]))
       self.Raw = 0
     end
@@ -415,7 +414,6 @@ class FlowSensor: AbstractSensor
     end
 
     def web_sensor(expanded, sec)
-        import string
         var msg
         var nm = "Common"
         var arrow = expanded ? "▲" : "▼"
@@ -483,6 +481,9 @@ class PersistStore
             'SoilMaxHymidity': nil, 'SoilMaxHymidityTime': nil,
             'PrevSoilMaxHymidity': nil, 'PrevSoilHPreFlood': nil,
             'PrevFloodedVol': nil,
+            # date (unix) and avg flow (ml/min) of the last fill; nil until the
+            # first flood after the upgrade. Written in _record_flood().
+            'LastFloodTime': nil, 'LastFlowRate': nil,
         }
         for p: keys.keys()
             self.register(prefix .. p, {'default': keys[p], 'policy': 'debounced'})
@@ -784,7 +785,8 @@ class Plant
         for p: ['SoilHPreFlood',
                 'SoilMaxHymidity', 'SoilMaxHymidityTime',
                 'PrevSoilMaxHymidity',
-                'PrevSoilHPreFlood', 'PrevFloodedVol']
+                'PrevSoilHPreFlood', 'PrevFloodedVol',
+                'LastFloodTime', 'LastFlowRate']
             var v = self.Store.get(self.Prefix .. p)
             introspect.set(self, p, v)
         end
@@ -952,7 +954,6 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
         # stop) from the counters and from the session delta. The backflow is a
         # volume in ml: converted to counter ticks via the C1 scale. Returns the
         # net amount of water (ticks) that actually left the pipe.
-        import string
         var d = Counter1 - self.Counter1BeforeStartTicks
         var BackflowTicks = self.ticks(self.Counter1Backflow)
         if d > BackflowTicks
@@ -981,11 +982,19 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
         var DeltaMl = CounterDeltaTicks * fscale
         self.LastFloodVol += DeltaMl
         # Average flow (ml/min) of this channel's last fill: dose volume over
-        # its own pump-on duration. In-memory (not persisted).
+        # its own pump-on duration. Persisted (see below) so the web group
+        # "Последний полив" survives a reboot.
         if self.PumpRunMillis != nil && self.PumpRunMillis > 0
             self.LastFlowRate = (DeltaMl * 60000.0) / self.PumpRunMillis
         else
             self.LastFlowRate = nil
+        end
+        # Persist the last-fill date and average flow rate (debounced policy,
+        # one save). The rate is guarded: a fill without a tracked pump-run
+        # must not resurrect a stale rate from Flash after a reboot.
+        self.Store.set(self.Prefix .. 'LastFloodTime', self.LastFloodTime)
+        if self.LastFlowRate != nil
+            self.Store.set(self.Prefix .. 'LastFlowRate', self.LastFlowRate)
         end
         if self.Preset != nil && self.Preset.Type == 'dry'
             # Dry soak cadence: fixed interval + daily volume tracking (ml).
@@ -2109,7 +2118,6 @@ class Watering
         # Channel-count fieldset rendered in any mode state. After the value has
         # just been changed it shows a "restart required" note plus a restart
         # button (the sensor/plant/rules layout is built on boot).
-        import string
         webserver.content_send("<fieldset><legend>Каналы</legend>")
         webserver.content_send("<p>Каналов: <b>" .. str(self.NumChannels) .. "</b>.</p>")
         if self._channels_pending != nil
@@ -2132,7 +2140,6 @@ class Watering
     def _service_limits_fieldset()
         # Low-flow ("Out of Water") fieldset, rendered in any mode state like the
         # channel fieldset. 0 disables detection.
-        import string
         webserver.content_send("<fieldset><legend>Нет воды</legend>")
         webserver.content_send("<p>Лимит расхода: <b>" .. str(self.FlowRateLimit) .. " ml/min</b> (0 = выкл).</p>")
         webserver.content_send(
@@ -2146,7 +2153,6 @@ class Watering
         # Body of the /svc page while the mode is active. Channel controls only
         # surface here (never on the main page), so they cannot touch a normal
         # flood session.
-        import string
         webserver.content_send("<fieldset><legend>Каналы</legend>")
         for i: 0..(self.NumChannels - 1)
             var p = self.plants[i]
@@ -2178,7 +2184,6 @@ class Watering
         # volume calibration form (needs the service-only pump controls).
         # OFF state: current C1 scale + last calibration stats + the direct
         # scale-entry form (no mode required).
-        import string
         webserver.content_send("<fieldset><legend>Калибровка датчика потока</legend>")
         webserver.content_send("<p>Scale (мл/тик): <b>" .. string.format("%01.4f", self.FlowSensors[0].Scale) .. "</b></p>")
         if show_cal
@@ -2266,7 +2271,6 @@ class Watering
         # (Датчик), session/pump status, dry soak and the previous/current
         # session stats — everything under one expanded channel. One method
         # owns the whole detail (SoilSensor.web_sensor only emits the header).
-        import string
         var plant = self.plants[pi]
         var num = plant.Num
         try
@@ -2354,8 +2358,10 @@ class Watering
                           k, str(introspect.get(plant, k)))
             end
             tasmota.web_send_decimal(msg)
-            # Last fill per channel: date + average flow rate (in-memory).
-            # Emitted only when a fill has been recorded (LastFloodTime set).
+            # Last fill per channel: date + average flow rate. Persisted as
+            # P{Num}LastFloodTime / P{Num}LastFlowRate (see _record_flood), so
+            # the group survives a reboot. Emitted only when a fill has been
+            # recorded (LastFloodTime set).
             if plant.LastFloodTime != nil
                 msg = wgrp("Последний полив")
                 msg += string.format(wrow("Last flood time", "%s"), self._TimeStr(plant.LastFloodTime))
@@ -2372,7 +2378,6 @@ class Watering
     def web_sensor()
     #- As we can add only one sensor method we will have to combine them besides all other sensor readings in one method -#
     #- each section is guarded: a crash in one must not truncate the rest -#
-        import string
         var msg
 
         # Main-page status banner while the service mode is active.
@@ -2542,7 +2547,6 @@ class Watering
         # Renaming/removing a key requires updating external consumers first.
         # Channel 1 is the telemetry channel (kept identical to iteration 1).
         import json
-        import string
         var p0 = self.plants[0]
         var wtele = {
                 'Soil1Raw': int(self.SoilSensors[0].Raw),
