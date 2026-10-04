@@ -7,11 +7,13 @@ the CLI contract exactly as specified - no extra flags to test around.
 
 Run: python3 scripts/test_mindmap_to_md.py
 """
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -25,14 +27,26 @@ def make_mm(node):
     """Build a minimal FreeMind XML file from a nested tree.
 
     Nesting comes from element nesting, not from whitespace: FreeMind ignores
-    indentation. A branch is (text, children); a leaf is just its text.
+    indentation. A node is either a plain string (leaf) or a dict with keys
+    "text", optional "icon", and optional "children".
     """
     lines = ['<map version="1.1.0">']
 
     def emit(current, depth):
-        text, children = (current, ()) if isinstance(current, str) else current
+        if isinstance(current, str):
+            text, icon, children = current, (), ()
+        else:
+            text = current["text"]
+            raw = current.get("icon", ())
+            if isinstance(raw, str):
+                icon = (raw,) if raw else ()
+            else:
+                icon = tuple(raw)
+            children = current.get("children", ())
         pad = " " * (4 * depth)
         lines.append('%s<node TEXT="%s">' % (pad, escape(text)))
+        for name in icon:
+            lines.append('%s  <icon BUILTIN="%s"/>' % (pad, name))
         for child in children:
             emit(child, depth + 1)
         lines.append("%s</node>" % pad)
@@ -43,9 +57,18 @@ def make_mm(node):
 
 
 # "Корень" > ("Ветка 1" > ("Лист 1", "Лист 2"), "Ветка 2")
-FIXTURE_TREE = ("Корень", (("Ветка 1", ("Лист 1", "Лист 2")), "Ветка 2"))
+FIXTURE_TREE = {"text": "Корень", "children": [
+    {"text": "Ветка 1", "children": ["Лист 1", "Лист 2"]},
+    "Ветка 2",
+]}
 FIXTURE = make_mm(FIXTURE_TREE)
 FIXTURE_NODES = 5
+
+# Same tree, with one leaf carrying an icon.
+ICON_FIXTURE = make_mm({"text": "Корень", "children": [
+    {"text": "Ветка 1", "children": [{"text": "Лист 1", "icon": "idea"}, "Лист 2"]},
+    "Ветка 2",
+]})
 
 
 class ConverterCase(unittest.TestCase):
@@ -176,6 +199,94 @@ class TestCheck(ConverterCase):
             self.assertEqual(fresh.run_converter("--check").returncode, 0)
         finally:
             shutil.rmtree(fresh.dir, True)
+
+
+class TestUnknownArguments(ConverterCase):
+    """A mistyped flag must not fall through to a silent regeneration.
+
+    The gate is only worth having if it can be trusted to fail. `--chek` used
+    to write the artifact and exit 0, which is a green gate over a mutated tree.
+    """
+
+    def setUp(self):
+        super().setUp()
+        (self.dir / SOURCE_NAME).write_text(ICON_FIXTURE, encoding="utf-8")
+
+    def test_mistyped_flag_is_rejected(self):
+        result = self.run_converter("--chek")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    def test_mistyped_flag_writes_nothing(self):
+        self.run_converter("--chek")
+        self.assertFalse(self.out.exists(), "a bad flag must not create the artifact")
+
+    def test_mistyped_flag_alongside_a_real_one_is_rejected(self):
+        result = self.run_converter("--check", "--chek")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    def test_a_positional_argument_is_rejected(self):
+        result = self.run_converter("docs/legacy/out.md")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+
+class TestIcons(ConverterCase):
+    def setUp(self):
+        super().setUp()
+        (self.dir / SOURCE_NAME).write_text(ICON_FIXTURE, encoding="utf-8")
+
+    def test_icon_is_preserved(self):
+        self.run_converter()
+        text = self.out.read_text(encoding="utf-8")
+        self.assertIn("idea", text, "icon dropped from the artifact")
+
+    def test_icon_sits_with_its_node(self):
+        self.run_converter()
+        line = [l for l in self.out.read_text(encoding="utf-8").splitlines()
+                if "Лист 1" in l][0]
+        self.assertIn("idea", line, "icon is not attached to its own node")
+
+    def test_nodes_without_icons_are_unmarked(self):
+        self.run_converter()
+        line = [l for l in self.out.read_text(encoding="utf-8").splitlines()
+                if "Лист 2" in l][0]
+        self.assertEqual(line.strip(), "- Лист 2")
+
+    def test_all_icons_on_one_node_are_kept(self):
+        """The real map has a node carrying both a warning and a done mark.
+        Keeping only the first icon silently drops half of that node's meaning.
+        """
+        (self.dir / SOURCE_NAME).write_text(make_mm(
+            {"text": "Корень", "children": [
+                {"text": "Оба", "icon": ["messagebox_warning", "yes"]},
+            ]}), encoding="utf-8")
+        self.run_converter()
+        line = [l for l in self.out.read_text(encoding="utf-8").splitlines()
+                if "Оба" in l][0]
+        self.assertIn("messagebox_warning", line)
+        self.assertIn("yes", line)
+
+    def test_every_real_map_icon_survives(self):
+        """The snapshot exists to preserve the author's own marks, including
+        the ones that record a rejected option or an unanswered question.
+
+        Counting occurrences, not just looking for the name: "button_ok"
+        appearing once would pass a substring check while 14 of 15 were lost.
+        """
+        (self.dir / SOURCE_NAME).write_text(
+            (REPO / SOURCE_NAME).read_text(encoding="utf-8"), encoding="utf-8")
+        result = self.run_converter()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        produced = self.out.read_text(encoding="utf-8")
+        source = (REPO / SOURCE_NAME).read_text(encoding="utf-8")
+        wanted = Counter(re.findall(r'BUILTIN="([^"]+)"', source))
+        self.assertGreater(len(wanted), 1, "source has no icons; test proves nothing")
+        got = Counter(re.findall(r"\[icon:([^\]]+)\]", produced))
+        for icon, count in wanted.items():
+            # The header documents the marker syntax using a placeholder name
+            # that is not a real icon, so no real count is inflated by it.
+            self.assertEqual(got.get(icon, 0), count,
+                             "icon %r: expected %d, got %d"
+                             % (icon, count, got.get(icon, 0)))
 
 
 class TestRealMap(ConverterCase):
