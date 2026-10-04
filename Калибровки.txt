@@ -236,3 +236,9 @@ Vout = Dout * Vmax / Dmax
 Пустая стекянная баночка - 1095
 Стеклянная баночка с водой - 1092
 
+2026_09_14
+----------
+Capacitive Soil moisture sensor v2
+
+
+
