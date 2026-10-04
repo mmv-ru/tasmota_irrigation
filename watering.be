@@ -1,5 +1,6 @@
 import webserver
 import strict
+import persist
 
 def EMA(oldEMA, N, NewValue)
     import math
@@ -34,7 +35,14 @@ class AbstractSensor
     end
 
     def Update(sensors)
-        self.Raw = sensors[self.SensorID[0]][self.SensorID[1]]
+        if sensors == nil
+            return
+        end
+        var key0 = self.SensorID[0]
+        if sensors.find(key0) == nil
+            return
+        end
+        self.Raw = sensors[key0][self.SensorID[1]]
     end
 
     def web_sensor()
@@ -96,7 +104,9 @@ class SoilSensor: AbstractSensor
 
     def Update(sensors)
         super(self).Update(sensors)
-
+        if self.Raw == nil
+            return
+        end
         if self.Raw < 2
             self.Status = 'N/C'
             #self.Raw = nil
@@ -133,6 +143,40 @@ class SoilSensor: AbstractSensor
         return (self.Hu_C[0] + self.Hu_C[1]*raw + self.Hu_C[2]*raw*raw)*100
     end
 
+    def SetDry(raw)
+        var r = int(raw)
+        if r == nil || r <= 0
+            print("SoilSensor: SetDry rejected, bad raw " .. str(raw) .. " -> " .. str(r))
+            return false
+        end
+        if r - self.RawWet <= 20
+            print("SoilSensor: SetDry rejected, gap " .. r .. "-" .. self.RawWet .. " <= 20")
+            return false
+        end
+        self.RawDry = r
+        import introspect
+        introspect.set(persist, 'TargetDry', self.RawDry)
+        persist.save()
+        return true
+    end
+
+    def SetWet(raw)
+        var r = int(raw)
+        if r == nil || r <= 0
+            print("SoilSensor: SetWet rejected, bad raw " .. str(raw) .. " -> " .. str(r))
+            return false
+        end
+        if self.RawDry - r <= 20
+            print("SoilSensor: SetWet rejected, gap " .. self.RawDry .. "-" .. r .. " <= 20")
+            return false
+        end
+        self.RawWet = r
+        import introspect
+        introspect.set(persist, 'TargetWet', self.RawWet)
+        persist.save()
+        return true
+    end
+
     def member(name)
         if name == 'Hymidity'
             return self.Raw2Hymidity(self.RawEma)
@@ -157,8 +201,14 @@ class SoilSensor: AbstractSensor
     def setmember(name, value)
         if name == 'Dry'
             self.RawDry = self.Hymidity2Raw(value)
+            import introspect
+            introspect.set(persist, 'TargetDry', self.RawDry)
+            persist.save()
         elif name == 'Wet'
             self.RawWet = self.Hymidity2Raw(value)
+            import introspect
+            introspect.set(persist, 'TargetWet', self.RawWet)
+            persist.save()
         else
             raise 'attribute_error', "the 'SoilSensor' object has no attribute '"..name.."'"
         end
@@ -172,28 +222,39 @@ class SoilSensor: AbstractSensor
         return self.Raw <= self.RawWet
     end
 
-    def web_sensor()
+    def web_sensor(detail)
         import string
         var msg
-        msg  = string.format(
-            "{s}" .. self.Name .. "{e}"..
-            "{s}| auto hreshold{m}%01.2f{e}"..
-            "{s}| | Hu{m}%01.1f%%{e}"..
-            "{s}| auto target{m}%01.2f{e}"..
-            "{s}| | Hu{m}%01.1f%%{e}",
-            self.SensorID[1],
-            self.RawDry, self.Raw2Hu(self.RawDry),
-            self.RawWet, self.Raw2Hu(self.RawWet)
-            )
-        msg = msg .. string.format(
-            "{s}| Raw{m}%i{e}" ..
-#            "{s}| Raw EMA(%i){m}%01.4f{e}",
-            "{s}| Raw EMA(%i){m}%01.4f{e}",
-            self.Raw, self.EMAN, self.RawEma)
-        msg = msg .. string.format(
-            "{s}| Hymidity u{m}%01.1f%%{e}"..
-            "{s}| | mV{m}%01.1f mV{e}",
-            self.Hu, self.mV)
+        if detail
+            msg  = string.format(
+                "{s}" .. self.Name .. "{e}"..
+                "{s}| auto hreshold{m}%01.2f{e}"..
+                "{s}| | Hu{m}%01.1f%%{e}"..
+                "{s}| auto target{m}%01.2f{e}"..
+                "{s}| | Hu{m}%01.1f%%{e}",
+                self.SensorID[1],
+                self.RawDry, self.Raw2Hu(self.RawDry),
+                self.RawWet, self.Raw2Hu(self.RawWet)
+                )
+            msg = msg .. string.format(
+                "{s}| Raw{m}%i{e}" ..
+                "{s}| Raw EMA(%i){m}%01.4f{e}",
+                self.Raw, self.EMAN, self.RawEma)
+            msg = msg .. string.format(
+                "{s}| Hymidity u{m}%01.1f%%{e}"..
+                "{s}| | mV{m}%01.1f mV{e}",
+                self.Hu, self.mV)
+        else
+            msg = string.format(
+                "{s}" .. self.Name .. "{e}",
+                self.SensorID[1])
+            if self.RawEma != nil
+                msg = msg .. string.format(
+                    "{s}| Raw EMA(%i){m}%01.4f{e}"..
+                    "{s}| Hymidity{m}%01.1f%%{e}",
+                    self.EMAN, self.RawEma, self.Raw2Hymidity(self.RawEma))
+            end
+        end
 
         tasmota.web_send_decimal(msg)
 
@@ -235,6 +296,9 @@ class FlowSensor: AbstractSensor
 
     def Update(sensors)
         super(self).Update(sensors)
+        if self.Raw == nil
+            return
+        end
         self._WaterFlow(sensors)
         if self.Status == 'init'
             self.Status = 'unverified'
@@ -243,7 +307,7 @@ class FlowSensor: AbstractSensor
 
     def Reset()
       import string
-      tasmota.cmd(string.format('Counter%d 0', self.SensorID[1][1]))
+      tasmota.cmd(string.format('Counter%s 0', self.SensorID[1][1]))
       self.Raw = 0
     end
 
@@ -256,10 +320,10 @@ class FlowSensor: AbstractSensor
                 var MillisDelta = CurMillis - self.LastMillis
                 RawDelta = self.Raw - self.LastRaw
 
-                Res = (RawDelta * 1000.0) / MillisDelta
-
-                #self.RawRateEMA = self.EMA(self.RawRateEMA, self.EMAN, Res)
-                self.RawRate = Res
+                if MillisDelta > 0
+                    Res = (RawDelta * 1000.0) / MillisDelta
+                    self.RawRate = Res
+                end
 
                 # Step mills
                 self.LastMillis = CurMillis
@@ -301,7 +365,7 @@ class FlowSensor: AbstractSensor
         end
     end
 
-    def web_sensor()
+    def web_sensor(detail)
         import string
         var msg
         msg = string.format(
@@ -310,15 +374,12 @@ class FlowSensor: AbstractSensor
         msg = msg .. string.format(
                   "{s}| Water used{m}%01.1f ml{e}",
                   self.Raw2Flow(self.Raw))
-        msg = msg .. string.format(
-                  "{s}| Water flow{m}%i pulse/s{e}"..
-                  "{s}| Water flow{m}%01.1f ml/min{e}",
-                  self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
-
-#        msg = msg .. string.format(
-#                  "{s}| MillsDeltaEMA{m}%f{e}"..
-#                  "{s}| MillsDeltaStdDevEMA{m}%f{e}",
-#                  self.MillisDeltaEMA, self.MillisDeltaStdDevEMA)
+        if detail
+            msg = msg .. string.format(
+                      "{s}| Water flow{m}%i pulse/s{e}"..
+                      "{s}| Water flow{m}%01.1f ml/min{e}",
+                      self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
+        end
 
         tasmota.web_send_decimal(msg)
     end
@@ -359,7 +420,11 @@ class Watering
     var PrevFloodedVol
     var PrevSoilHPostFlood
     var AutofloodInProcess
+    var BootInitTries
     var Counter1ResetPostpone
+    var DetailView
+    var TimeCacheKey
+    var TimeCache
 
 
     def button_pressed(cmd, idx, payload, raw)
@@ -384,7 +449,13 @@ class Watering
         import string
         import json
         var sensors = json.load(tasmota.read_sensors())
-        var Counter1 = sensors['COUNTER']['C1']
+        var Counter1 = 0
+        if sensors != nil
+            var counter = sensors.find('COUNTER')
+            if counter != nil
+                Counter1 = counter['C1']
+            end
+        end
         #print(string.format("value: %s trigger: %s", value, trigger))
         if value['State'] == 1
             self.PumpStartMillis = tasmota.millis()
@@ -399,6 +470,10 @@ class Watering
             self.PauseSoilMaxStat = true
             self.Counter1BeforeStart = self.FlowSensors[0].Raw
             print("Counter: ", self.FlowSensors[0].Raw)
+            # A new flood while the previous "return to default teleperiod"
+            # timer is still pending would let it kill this session's fast
+            # telemetry mid-run. Cancel it here.
+            tasmota.remove_timer("ID_ENDFASTTELE")
             if self.PlannedFlood
                 self.FinishRule = "COUNTER#C1>="..(self.FlowSensors[0].Raw+self.Counter1Backflow+self.PlannedFlood)
             else
@@ -412,7 +487,7 @@ class Watering
         elif value['State'] == 0
             try
                 self.PumpRunMillis = tasmota.millis() - self.PumpStartMillis
-            except
+            except .. as e
                 log("Pump stop without run.", 1)
             end
             print("Water pump OFF")
@@ -463,7 +538,7 @@ class Watering
 
     def timer_endfasttele_after_flooded()
         print("Timer: end fast teleperiod after flooded")
-        tasmota.cmd("TelePeriod 1") # Default
+        tasmota.cmd("TelePeriod 300") # Default Tasmota teleperiod (not the flood's fast 10s)
     end
 
     def timer_soil_transition_after_flooded()
@@ -481,6 +556,10 @@ class Watering
             print("Autofloood: Wet lewel not reached. Repeat flooding")
             # TODO: increment Default
             self.Counter1FloodDefault = self.Counter1FloodDefault * 1.2
+            if self.Counter1FloodDefault > self.MaxFlood
+                self.Counter1FloodDefault = self.MaxFlood
+                print("Counter1FloodDefault capped at MaxFlood " .. self.MaxFlood)
+            end
             tasmota.cmd("Power1 1")
         else
             # Flooding session finished?
@@ -504,7 +583,6 @@ class Watering
     end
 
     def auto_flood()
-        import persist
         print("Autoflood: AutofloodInProcess ", self.AutofloodInProcess)
         #print("Autoflood: Closure test Sensor ", self.SoilSensors[0])
         #print("Autoflood: Closure test A1 ", self.SoilSensors[0].Raw)
@@ -520,8 +598,14 @@ class Watering
             for p: ['PrevSoilMaxHymidity',
                    'PrevSoilHPreFlood', 'PrevFloodedVol', 'PrevSoilHPostFlood']
                 introspect.set(persist, p, introspect.get(self, p, nil))
-                persist.save()
             end
+            # Persist the last finished session's estimate inputs too, so that
+            # estimateflood() still works after a reboot (otherwise SoilHPreFlood /
+            # LastFloodVol come back nil -> estimate returns nil -> fallback).
+            introspect.set(persist, 'SoilHPreFlood', self.SoilHPreFlood)
+            introspect.set(persist, 'LastFloodVol', self.LastFloodVol)
+            introspect.set(persist, 'SoilMaxHymidity', self.SoilMaxHymidity)
+            persist.save()
 
             if self.estimateflood()
                self.PlannedFlood = self.estimateflood()
@@ -548,8 +632,10 @@ class Watering
             var CurDRaw = self.SoilSensors[0].RawEma - self.SoilSensors[0].RawWet
             var EstimatedFlood = real(self.LastFloodVol)*CurDRaw/LastFloodDRaw
             if EstimatedFlood < 100
+                # estimate too small/negative for a meaningful dose -> nil (use default),
+                # not 0 (would falsely mean "no flooding needed")
                 log("EstimatedFlood: " .. EstimatedFlood)
-                return 0
+                return nil
             else
                 return int(EstimatedFlood)
             end
@@ -561,17 +647,34 @@ class Watering
 
     def pulseencode(time)
         #- https://tasmota.github.io/docs/Commands/#pulsetime -#
+        if time < 0
+            print("pulseencode: MaxPumpRun ".. time .." out of bounds, clamped to 0")
+            time = 0
+        elif time > 64800
+            print("pulseencode: MaxPumpRun ".. time .." out of bounds, clamped to 64800")
+            time = 64800
+        end
         if 0 <= time && time <= 11.1
            return int(time * 10)
         elif 11.1 < time && time <= 11.5
            return 111
         elif 11.5 < time && time < 12
            return 112
-        elif 12 <= time && time <= 64900
-           return int(time + 100)
         else
-           raise 'value_outofbound', 'ERROR: MaxPumpRun '.. time ..' out of bounds'
+           return int(time + 100)
         end
+    end
+
+    def _TimeStr(ts)
+        # Cache formatted timestamp: web_sensor() runs every second on page
+        # refresh, strftime() is expensive; the value changes rarely.
+        if ts == self.TimeCacheKey
+            return self.TimeCache
+        end
+        var s = ts != nil ? tasmota.strftime("%d %B %H:%M", ts) : nil
+        self.TimeCacheKey = ts
+        self.TimeCache = s
+        return s
     end
 
     def update()
@@ -579,21 +682,38 @@ class Watering
     end
 
     def init()
-        def cb_auto_flood()
-            self.auto_flood()
-        end
-        var sensors
-        #var p
-        import json
-        import math
-        import persist
-        import introspect
+        # On early boot Tasmota subsystems (sensors etc.) may not be up yet.
+        # Do NOT block the main loop with tasmota.delay() here - it stalls the
+        # whole Tasmota and the sensor subsystem never comes up. Defer the
+        # service dependent init to a non-blocking timer with retries instead.
         print("Init Watering object")
         print("imported", tasmota)
-        var tmp = tasmota.read_sensors()
-        print("Sensors readen from tasmota")
-        sensors = json.load(tmp)
-        #sensors = json.load(tasmota.read_sensors()) # Don`t work on boot stage
+        self.BootInitTries = 0
+        self.init_sensors()
+    end
+
+    def init_sensors()
+        # Retry reading sensors until Tasmota has booted. On real boot the read
+        # may throw; catch it and retry via a non-blocking timer instead of
+        # failing the whole load(). In tests/runtime read succeeds immediately.
+        print("Try reading sensors")
+        import json
+        import math
+        import introspect
+        try
+            var tmp = tasmota.read_sensors()
+            print("Sensors readen from tasmota")
+        except .. as e
+            self.BootInitTries += 1
+            print("Sensors not ready on boot: " .. e)
+            if self.BootInitTries <= 30
+                tasmota.set_timer(1000, /-> self.init_sensors(), "ID_DELAY_INIT")
+            else
+                print("Giving up on delayed sensor init")
+                print("WARNING: Watering driver NOT registered (sensors never came up)")
+            end
+            return
+        end
         print("Sensors loaded from Json string")
 
         self.FlowSensorCalibration = false
@@ -631,6 +751,8 @@ class Watering
         self.PauseSoilMaxStat = false
         self.AutofloodInProcess = false
         self.Counter1ResetPostpone = false
+        self.DetailView = false
+        self.Counter1BeforeStart = self.FlowSensors[0].Raw
 
         tasmota.add_driver(self)
         tasmota.cmd('PowerOnState 0') # relay off after PowerOn
@@ -641,24 +763,59 @@ class Watering
         tasmota.add_cron("0 1 14,15,16,17,18,19,20,21,22,23,0,1 * * *", /-> self.auto_flood(), "auto_flood")
         print("Cron auto_flood initialized")
         tasmota.remove_cmd("autoflood")
-        tasmota.add_cmd("autoflood", /-> self.auto_flood())
+        tasmota.add_cmd("autoflood", def () self.auto_flood() tasmota.resp_cmnd_done() end)
         print("Command auto_flood initialized")
-    end
-
-    def on_cmd_autoflood(cmd, idx, payload, payload_json)
-        # tasmota.resp_cmnd(json.dump({self.cmd: j}))
-        tasmota.resp_cmnd_done()
+        tasmota.remove_cmd("SoilDry")
+        tasmota.add_cmd("SoilDry", def (cmd, idx, payload, payload_json)
+            # Empty payload (e.g. "SoilDry") means "report current value",
+            # never "set to 0" (int("") == 0 would reset the threshold).
+            if payload == nil || payload == ""
+                tasmota.resp_cmnd_str(str(self.SoilSensors[0].RawDry))
+                return
+            end
+            try
+                if self.SoilSensors[0].SetDry(int(payload))
+                    tasmota.resp_cmnd_done()
+                else
+                    tasmota.resp_cmnd_error()
+                end
+            except .. as e
+                log("SoilDry: bad payload " .. payload, 1)
+                tasmota.resp_cmnd_error()
+            end
+        end)
+        tasmota.remove_cmd("SoilWet")
+        tasmota.add_cmd("SoilWet", def (cmd, idx, payload, payload_json)
+            # Empty payload means "report current value", not "set to 0".
+            if payload == nil || payload == ""
+                tasmota.resp_cmnd_str(str(self.SoilSensors[0].RawWet))
+                return
+            end
+            try
+                if self.SoilSensors[0].SetWet(int(payload))
+                    tasmota.resp_cmnd_done()
+                else
+                    tasmota.resp_cmnd_error()
+                end
+            except .. as e
+                log("SoilWet: bad payload " .. payload, 1)
+                tasmota.resp_cmnd_error()
+            end
+        end)
+        print("Commands SoilDry/SoilWet initialized")
     end
 
     def deinit()
-        import persist
         persist.save()
         tasmota.remove_rule("POWER1")
         tasmota.remove_rule("BUTTON1")
         tasmota.remove_cron("auto_flood")
         tasmota.remove_timer("ID_SOILTRANSITION_AFTERFLOOD")
         tasmota.remove_timer("ID_ENDFASTTELE")
+        tasmota.remove_timer("ID_DELAY_INIT")
         tasmota.remove_cmd("autoflood")
+        tasmota.remove_cmd("SoilDry")
+        tasmota.remove_cmd("SoilWet")
         tasmota.cmd("Power1 0")
         if self.FinishRule
             tasmota.remove_rule(self.FinishRule)
@@ -677,6 +834,9 @@ class Watering
         import math
         var tmp = tasmota.read_sensors()
         var sensors = json.load(tmp)
+        if sensors == nil
+            return
+        end
         for s: self.SoilSensors
             s.Update(sensors)
         end
@@ -694,7 +854,6 @@ class Watering
         if self.SoilMaxHymidity &&  !self.SoilMaxHymidityConfirmed && self.SoilSensors[0].RawEma > self.SoilMaxHymidity + 5
             print("SoilMaxHymidityConfirmed")
             self.SoilMaxHymidityConfirmed = true
-            import persist
             import introspect
             introspect.set(persist, 'SoilMaxHymidity', self.SoilMaxHymidity)
             introspect.set(persist, 'SoilMaxHymidityTime', self.SoilMaxHymidityTime)
@@ -707,6 +866,12 @@ class Watering
     def web_add_main_button()
         webserver.content_send("<p></p><button onclick='la(\"&m_toggle_flowcalibration=1\");'>Flow Sensor Calibration</button>")
         webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_1=1\");'>Reset water counter 1</button>")
+        webserver.content_send("<p></p><button onclick='this.innerHTML=(this.innerHTML.indexOf(\"Compact view\")>=0)?\"Detail view\":\"Compact view\";la(\"&m_detail=2\");'>" .. (self.DetailView ? "Compact view" : "Detail view") .. "</button>")
+        webserver.content_send(
+            "<p></p><div style='display:flex;flex-wrap:wrap;gap:4px;align-items:center'>"
+            .. "Soil Dry(Raw) <input type='text' id='soil_dry' name='m_soildry' style='width:5em;padding:2px' value='" .. str(self.SoilSensors[0].RawDry) .. "'> "
+            .. "Soil Wet(Raw) <input type='text' id='soil_wet' name='m_soilwet' style='width:5em;padding:2px' value='" .. str(self.SoilSensors[0].RawWet) .. "'> "
+            .. "<button style='width:auto;padding:2px 8px' onclick='la(\"&m_soildry=\"+eb(\"soil_dry\").value+\"&m_soilwet=\"+eb(\"soil_wet\").value);'>Set soil thresholds</button></div>")
 #        webserver.content_send("<p></p><button onclick='la(\"&m_reset_water_counter_2=1\");'>Reset water counter 1</button>")
     end
 
@@ -724,77 +889,141 @@ class Watering
 
     def web_sensor()
     #- As we can add only one sensor method we will have to combine them besides all other sensor readings in one method -#
+    #- each section is guarded: a crash in one must not truncate the rest -#
         var msg
 
-        if webserver.has_arg("m_toggle_flowcalibration")
-          self.FlowSensorCalibration = ! self.FlowSensorCalibration
-          print("FlowSensor Calibration mode" .. self.FlowSensorCalibration)
+        try
+            if webserver.has_arg("m_toggle_flowcalibration")
+              self.FlowSensorCalibration = ! self.FlowSensorCalibration
+              print("FlowSensor Calibration mode" .. self.FlowSensorCalibration)
+            end
+        except .. as e
+            print("web_sensor: flowcal toggle failed " .. e)
         end
 
-        if webserver.has_arg("m_reset_water_counter_1")
-          if self.AutofloodInProcess
-            self.Counter1ResetPostpone = true
-          else
-            self.FlowSensors[0].Reset()
-          end
+        try
+            if webserver.has_arg("m_reset_water_counter_1")
+              if self.AutofloodInProcess
+                self.Counter1ResetPostpone = true
+              else
+                self.FlowSensors[0].Reset()
+              end
+            end
+        except .. as e
+            print("web_sensor: reset counter failed " .. e)
         end
 
-#        if webserver.has_arg("m_reset_water_counter_2")
-#          # TODO: Autoflood support only 1 channel
-#          if self.AutofloodInProcess
-#            self.Counter1ResetPostpone = true
-#          else
-#            self.FlowSensors[1].Reset()
-#          end
-#        end
+        try
+            if webserver.has_arg("m_toggle_conf") # takes a string as argument name and returns a boolean
+                # we can even call another function and use the value as a parameter
+                # takes a string or integer(index of arguments) to get the value of the argument
+                print("Conf button pressed")
+                #self.Conf_Toggle = int(webserver.arg("m_toggle_conf"))
+            end
+        except .. as e
+            print("web_sensor: conf toggle failed " .. e)
+        end
 
-        if webserver.has_arg("m_toggle_conf") # takes a string as argument name and returns a boolean
-            # we can even call another function and use the value as a parameter
-            # takes a string or integer(index of arguments) to get the value of the argument
-            print("Conf button pressed")
-            #self.Conf_Toggle = int(webserver.arg("m_toggle_conf"))
+        try
+            if webserver.has_arg("m_detail")
+                var v = webserver.arg("m_detail")
+                if v == "1"
+                    self.DetailView = true
+                elif v == "0"
+                    self.DetailView = false
+                else
+                    self.DetailView = !self.DetailView
+                end
+                print("web_sensor: detail view " .. (self.DetailView ? "on" : "off"))
+            end
+        except .. as e
+            print("web_sensor: detail toggle failed " .. e)
+        end
+
+        try
+            if webserver.has_arg("m_soildry")
+                if self.SoilSensors[0].SetDry(int(webserver.arg("m_soildry")))
+                    print("web_sensor: Soil Dry threshold set to " .. self.SoilSensors[0].RawDry)
+                else
+                    print("web_sensor: Soil Dry threshold rejected")
+                end
+            end
+            if webserver.has_arg("m_soilwet")
+                if self.SoilSensors[0].SetWet(int(webserver.arg("m_soilwet")))
+                    print("web_sensor: Soil Wet threshold set to " .. self.SoilSensors[0].RawWet)
+                else
+                    print("web_sensor: Soil Wet threshold rejected")
+                end
+            end
+        except .. as e
+            print("web_sensor: soil threshold failed " .. e)
         end
 
         import string
-        msg = string.format(
-                  "{s}FlowSensor Calibration mode{m}%s{e}",
-                  self.FlowSensorCalibration)
-        tasmota.web_send_decimal(msg)
+        try
+            msg = string.format(
+                      "{s}FlowSensor Calibration mode{m}%s{e}",
+                      self.FlowSensorCalibration)
+            tasmota.web_send_decimal(msg)
+        except .. as e
+            print("web_sensor: calibration row failed " .. e)
+        end
 
-        msg = string.format(
-                  "{s}Flooding in process{m}%s{e}",
-                  self.AutofloodInProcess)
-        tasmota.web_send_decimal(msg)
+        try
+            msg = string.format(
+                      "{s}Flooding in process{m}%s{e}",
+                      self.AutofloodInProcess)
+            tasmota.web_send_decimal(msg)
+        except .. as e
+            print("web_sensor: flooding row failed " .. e)
+        end
 
-        self.SoilSensors[0].web_sensor()
-        #tasmota.web_send_decimal(msg)
-        self.SoilSensors[1].web_sensor()
+        try
+            self.SoilSensors[0].web_sensor(self.DetailView)
+        except .. as e
+            print("web_sensor: soil1 row failed " .. e)
+        end
+
+        try
+            self.SoilSensors[1].web_sensor(self.DetailView)
+        except .. as e
+            print("web_sensor: soil2 row failed " .. e)
+        end
 
         if self.SoilMaxHymidity != nil
-            msg = string.format(
-                    "{s}SoilHymidity1 max{m}%i{e}",
-                    self.SoilMaxHymidity)
-            if self.SoilMaxHymidityConfirmed
-                msg += string.format(
-                        "{s}SoilHymidity1 max time{m}%s{e}",
-                        tasmota.strftime("%d %B %H:%M", self.SoilMaxHymidityTime))
+            try
+                msg = string.format(
+                        "{s}SoilHymidity1 max{m}%i{e}",
+                        self.SoilMaxHymidity)
+                if self.SoilMaxHymidityConfirmed
+                    msg += string.format(
+                            "{s}SoilHymidity1 max time{m}%s{e}",
+                            self._TimeStr(self.SoilMaxHymidityTime))
+                end
+                tasmota.web_send_decimal(msg)
+            except .. as e
+                print("web_sensor: max humidity row failed " .. e)
             end
-            tasmota.web_send_decimal(msg)
         end
 
         if self.LastFloodTime != nil
-            #print("Web S: LastFlood")
-            #print("Web S: LastFlood ".. self.LastFloodVol)
-            #print("Web S: LastFloodTime ".. self.LastFloodTime)
-            msg = string.format(
-                      "{s}Last flood time{m}%s{e}"..
-                      "{s}Last flood{m}%01.1f ml{e}",
-                      tasmota.strftime("%d %B %H:%M", self.LastFloodTime),
-                      self.FlowSensors[0].Raw2Flow(self.LastFloodVol))
-            tasmota.web_send_decimal(msg)
+            try
+                msg = string.format(
+                          "{s}Last flood time{m}%s{e}"..
+                          "{s}Last flood{m}%01.1f ml{e}",
+                          self._TimeStr(self.LastFloodTime),
+                          self.FlowSensors[0].Raw2Flow(self.LastFloodVol))
+                tasmota.web_send_decimal(msg)
+            except .. as e
+                print("web_sensor: last flood row failed " .. e)
+            end
         end
 
-        self.FlowSensors[0].web_sensor()
+        try
+            self.FlowSensors[0].web_sensor()
+        except .. as e
+            print("web_sensor: flow1 row failed " .. e)
+        end
 
         #print("web_sensor: processed")
 
@@ -805,6 +1034,9 @@ class Watering
 
     def json_append()
         #- add sensor value to teleperiod -#
+        # NOTE: Keys of the "Watering" dict are part of the external integration
+        # contract (InfluxDB / Grafana / OpenHAB via Ifx + teleperiod JSON).
+        # Renaming/removing a key requires updating external consumers first.
         import json
         import string
         var wtele = {
@@ -832,48 +1064,10 @@ class Watering
 
 end
 
-class MessageChannel
-    def Send(message)
-        log('Abstract Class Channel not send messages.', 3)
-        return {'Success': False, 'Message': 'Abstract Class Channel not send messages.'}
-    end
-end
-
-class TelegramChannel: MessageChannel
-    var BotAPIToken
-    var ChatID
-    var url_template
-
-    def init(BotAPIToken, ChatID)
-        self.ChatID = ChatID
-        self.BotAPIToken = BotAPIToken
-        self.url_template = "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s"
-    end
-
-    def Send(message)
-        import string
-        log('Abstract Class Channel not send messages.', 3)
-        var url = string.format(self.url_template, self.BotAPIToken, self.ChatID, message)
-        var cl = webclient()
-        cl.begin(url)
-        var result = cl.GET()
-        print(result)
-        var s = cl.get_string()
-        print(s)
-        return {'Success': False, 'Message': 'Abstract Class Channel not send messages.'}
-    end
-end
-
-class Alerter
-    var MessageQ
-    var Channels
-
-end
-
-
-
-
-
+# Configure InfluxDB telemetry BEFORE (re)creating the Watering driver so that
+# system data keeps flowing even if the driver crashes during deinit/init.
+tasmota.cmd('ifx {"State":"ON","Host":"172.17.200.197","Port":8086,"Version":2,"Bucket":"e39ac351b59fc1d9","Org":"openhab"}')
+tasmota.cmd("IfxToken ");
 
 print("Check for old watering object")
 import introspect
@@ -886,7 +1080,4 @@ end
 print("Add new Watering driver")
 wp1 = Watering()
 print("Watering driver initialized")
-
-tasmota.cmd('ifx {"State":"ON","Host":"172.17.200.197","Port":8086,"Version":2,"Bucket":"e39ac351b59fc1d9","Org":"openhab"}')
-tasmota.cmd("IfxToken ");
 # tasmota.cmd("BrRestart");
