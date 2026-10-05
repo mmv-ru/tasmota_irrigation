@@ -134,7 +134,7 @@ assert_true(!persist.has('P1PrevFloodedVol'), "Prev* stats still not polluted")
 section("every_second_skips_max_tracking_in_dry")
 
 # WriteStats=false: SoilMaxHymidity must not be captured during a dry session
-P1.Preset = FloodPreset('dry', wp1.Store, P1.Prefix)
+P1.Preset = fsm.FloodPreset('dry', wp1.Store, P1.Prefix)
 wp1.SoilSensors[0].RawEma = 900
 P1.PauseSoilMaxStat = false
 P1.SoilMaxHymidity = nil
