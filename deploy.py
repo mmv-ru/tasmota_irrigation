@@ -13,6 +13,13 @@ import time
 logging.basicConfig(level=logging.ERROR, format="%(message)s")
 
 tasmota_host = '172.17.252.43'
+# Files pushed to the device, in upload order. Modules come FIRST and the
+# entry point LAST: 'watering.be' imports them, so a device left with a new
+# entry point and missing modules would fail to load. Each task of the
+# src-split plan appends its module here.
+MODULE_FILES = (
+    'watering.be',
+)
 filename = 'watering.be'
 
 # Berry crash / init-failure patterns looked up in the console log after BrRestart.
@@ -412,36 +419,48 @@ def main():
                         "устройство не вернулось после полного рестарта (Restart 1)")
                 time.sleep(2)
 
-        # 1. Upload (if changed) + verify. Continue on failure so the log and
-        #    web checks still run and report their own state.
+        # 1. Upload (if changed) + verify every file. A partial set would leave
+        #    the device with an entry point importing modules that are not
+        #    there, so the first failure aborts BEFORE any restart: restarting
+        #    is what turns a recoverable state into a dead script.
+        upload_failed = []
         try:
-            if not t.pushfile(filename):
-                problems.append("upload verification failed")
+            for f in MODULE_FILES:
+                if not t.pushfile(f):
+                    upload_failed.append(f)
         except requests.exceptions.RequestException as e:
             print(f"Upload failed (network): {e}")
             ping_note(tasmota_host, problems, ping_info)
+            upload_failed.append("<network>")
+        if upload_failed:
+            problems.append("upload verification failed: "
+                            + ", ".join(upload_failed))
 
-        # 2-3. Restart the Berry VM and watch the console log. Try BrRestart
-        #    first; if the fresh load died with MEMORY ALLOCATION FAILED, retry
-        #    once with a full device restart (it clears the heap and the log).
-        lines, init_ok, crashes, attempt_problems = _restart_and_collect(t, False)
-        if any('MEMORY ALLOCATION FAILED' in l for l in lines):
-            print("MEMORY ALLOCATION FAILED после BrRestart: "
-                  "повтор с полным рестартом")
-            lines, init_ok, crashes, attempt_problems = \
-                _restart_and_collect(t, True)
-        if init_ok:
-            print("Init marker found: Watering driver initialized")
-        problems.extend(attempt_problems)
-        if crashes:
-            problems.append("ошибка в логах после старта:")
-            for line in crashes:
-                print("  " + line)
+        if upload_failed:
+            print("Upload failed -> skipping restart and startup checks "
+                  "(a partial file set would kill the script)")
+        else:
+            # 2-3. Restart the Berry VM and watch the console log. Try BrRestart
+            #    first; if the fresh load died with MEMORY ALLOCATION FAILED, retry
+            #    once with a full device restart (it clears the heap and the log).
+            lines, init_ok, crashes, attempt_problems = _restart_and_collect(t, False)
+            if any('MEMORY ALLOCATION FAILED' in l for l in lines):
+                print("MEMORY ALLOCATION FAILED после BrRestart: "
+                      "повтор с полным рестартом")
+                lines, init_ok, crashes, attempt_problems = \
+                    _restart_and_collect(t, True)
+            if init_ok:
+                print("Init marker found: Watering driver initialized")
+            problems.extend(attempt_problems)
+            if crashes:
+                problems.append("ошибка в логах после старта:")
+                for line in crashes:
+                    print("  " + line)
 
-        # 4. Main page must answer 200 and render channel sections. Runs
-        #    regardless of log problems — collect the full picture first.
-        time.sleep(1)
-        t.check_web(problems, ping_info)
+            # 4. Main page must answer 200 and render channel sections. Runs
+            #    regardless of log problems — collect the full picture first.
+            time.sleep(1)
+            t.check_web(problems, ping_info)
 
     # 5. Aggregate: all checks already ran; only now decide the exit code.
     if problems:
