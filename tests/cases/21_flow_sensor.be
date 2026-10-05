@@ -51,7 +51,7 @@ assert_eq(fs.RateMeasuring, false, "RateMeasuring exposed as member")
 section("flow_rate_nil_and_setmember")
 
 # Rate with no samples yet -> nil (diagnostics placeholder: "no flow while pump ON")
-new_fs = FlowSensor('C1')
+new_fs = sensors.FlowSensor('C1')
 assert_eq(new_fs.member("Rate"), nil, "Rate member nil when never measured")
 assert_eq(new_fs.member("RateMeasuring"), nil, "RateMeasuring initial state nil")
 new_fs.RateMeasuring = true

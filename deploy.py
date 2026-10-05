@@ -21,6 +21,7 @@ MODULE_FILES = (
     'cfg.be',
     'web_kit.be',
     'store.be',
+    'sensors.be',
     'watering.be',
 )
 filename = 'watering.be'
