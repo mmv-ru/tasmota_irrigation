@@ -148,8 +148,15 @@ end
 
 # ---------------- persist stub -----------------
 # Module file tests/modules/persist.be provides `import persist` (class instance).
-# It lives as a module so Tasmota-style `import persist` in watering.be resolves.
-# Defined in the module file itself; this header only tracks the boot variable.
+# It lives as a module so Tasmota-style `import persist` resolves.
+#
+# The shipped script imports persist from exactly one file (store.be - ADR-2), so
+# watering.be no longer brings it into the combined file's scope. Test cases are
+# concatenated into that same file and several of them assert white-box on the
+# device store (`persist.saves`, `persist.has`), which is legitimate for tests and
+# illegitimate for the driver. Importing it here keeps that asymmetry explicit:
+# the harness reaches raw persist, the driver cannot.
+import persist
 
 # ---------------- global stub so boot introspect.get(global,"wp1") works ----------------
 var global = module('global')

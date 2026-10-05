@@ -49,7 +49,7 @@ assert_eq(persist.saves, saves_before, "flush on clean store does not save")
 
 section("set_immediate")
 
-var sti = PersistStore()
+var sti = store.PersistStore()
 sti.register('TestImm', {'default': 0, 'policy': 'immediate'})
 persist.saves = 0
 sti.set('TestImm', 55)
@@ -59,7 +59,7 @@ assert_eq(sti.Shadow.find('TestImm'), 55, "immediate policy syncs Shadow")
 
 section("set_threshold_relative")
 
-var stt = PersistStore()
+var stt = store.PersistStore()
 stt.register('TestThr', {'default': 0, 'policy': 'threshold', 'thr': 0.5})
 persist.saves = 0
 # first write from 0: relative change against base=value (no stored base) -> save
@@ -81,7 +81,7 @@ assert_true(stt.Dirty, "store dirty after small threshold change")
 
 section("threshold_div_zero_guard")
 
-var stz = PersistStore()
+var stz = store.PersistStore()
 stz.register('TestZero', {'default': 0, 'policy': 'threshold', 'thr': 0.5})
 persist.saves = 0
 # both shadow and value are 0 -> no crash, no save

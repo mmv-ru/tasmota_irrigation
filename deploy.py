@@ -20,6 +20,7 @@ tasmota_host = '172.17.252.43'
 MODULE_FILES = (
     'cfg.be',
     'web_kit.be',
+    'store.be',
     'watering.be',
 )
 filename = 'watering.be'
