@@ -3,18 +3,7 @@ import strict
 import persist
 import string
 
-# Maximum number of irrigation channels (2..4). Each channel owns one pump
-# relay (Power1..PowerN) and one soil sensor (A1..AN); all channels share the
-# flow counter C1, so fills are strictly serialised (one at a time).
-var MAX_CHANNELS = 4
-
-# Deferred phase-2 init delay (ms). On early boot the firmware's own sensor
-# drivers are still coming up and read_sensors() can throw through the
-# FUNC_JSON_APPEND dispatch during the first ~1.7 s of uptime (WiFi connects
-# ~3.7 s). Watering init() arms a one-shot timer with this delay instead of
-# calling init_sensors() synchronously, so the first read happens ~4.3 s in —
-# outside the crash window (pattern: xsns_34_hx711 "Fix power on init").
-var BOOT_INIT_DELAY_MS = 4000
+import cfg
 
 def EMA(oldEMA, N, NewValue)
     import math
@@ -1405,7 +1394,7 @@ class Watering
         self.Store = PersistStore()
         # Channel count is a Store variable (persistent, immediate policy) so
         # the number of channels can be configured without code changes. It is
-        # registered before load() and clamped to [1, MAX_CHANNELS].
+        # registered before load() and clamped to [1, cfg.MAX_CHANNELS].
         self.Store.register('Channels', {'default': '2', 'policy': 'immediate'})
         # Global flow-sensor calibration (ml per counter tick). The C1 flow
         # meter is shared by every channel, so the scale is a global key, not a
@@ -1418,15 +1407,15 @@ class Watering
         # an active channel measures Rate*60 below this, the global OutOfWater
         # flag is set (see _flow_low_check). Configured from the service page.
         self.Store.register('FlowRateLimit', {'default': '0', 'policy': 'debounced'})
-        for i: 0..(MAX_CHANNELS - 1)
+        for i: 0..(cfg.MAX_CHANNELS - 1)
             self.Store.register_channel('P' + str(i + 1))
         end
         self.Store.load()
         self.NumChannels = int(self.Store.get('Channels'))
         if self.NumChannels == nil || self.NumChannels < 1
             self.NumChannels = 1
-        elif self.NumChannels > MAX_CHANNELS
-            self.NumChannels = MAX_CHANNELS
+        elif self.NumChannels > cfg.MAX_CHANNELS
+            self.NumChannels = cfg.MAX_CHANNELS
         end
         # Global low-flow detection limit (ml/min, 0 = off). Read after load()
         # so a persisted override wins over the registered default. The flag and
@@ -1448,7 +1437,7 @@ class Watering
         # Arm a one-shot timer instead (non-blocking; ID_DELAY_INIT is then
         # reused by init_sensors()' retry loop if the first read still fails).
         self._initialized = false
-        tasmota.set_timer(BOOT_INIT_DELAY_MS, /-> self.init_sensors(), "ID_DELAY_INIT")
+        tasmota.set_timer(cfg.BOOT_INIT_DELAY_MS, /-> self.init_sensors(), "ID_DELAY_INIT")
     end
 
     def _migrate_units(mscale)
@@ -1635,7 +1624,7 @@ class Watering
                 return
             end
             var n = int(payload)
-            if n == nil || n < 1 || n > MAX_CHANNELS
+            if n == nil || n < 1 || n > cfg.MAX_CHANNELS
                 tasmota.resp_cmnd_error()
                 return
             end
@@ -2090,7 +2079,7 @@ class Watering
         # (immediate policy) and applied on the next boot. The per-channel Store
         # parameters of the disabled channels are left untouched.
         var n = int(webserver.arg("channels"))
-        if n == nil || n < 1 || n > MAX_CHANNELS
+        if n == nil || n < 1 || n > cfg.MAX_CHANNELS
             print("Service: bad channels arg '" .. str(webserver.arg("channels")) .. "'")
             return
         end
@@ -2137,7 +2126,7 @@ class Watering
         else
             webserver.content_send(
                 "<form action='svc' style='display: block;' method='get'>" ..
-                "<input name='channels' type='number' min='1' max='" .. str(MAX_CHANNELS) ..
+                "<input name='channels' type='number' min='1' max='" .. str(cfg.MAX_CHANNELS) ..
                 "' value='" .. str(self.NumChannels) .. "'> " ..
                 "<button>Применить</button></form>")
         end

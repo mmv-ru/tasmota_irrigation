@@ -18,6 +18,7 @@ tasmota_host = '172.17.252.43'
 # entry point and missing modules would fail to load. Each task of the
 # src-split plan appends its module here.
 MODULE_FILES = (
+    'cfg.be',
     'watering.be',
 )
 filename = 'watering.be'

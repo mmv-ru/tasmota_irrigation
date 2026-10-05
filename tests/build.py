@@ -63,6 +63,17 @@ def build(case_path: Path) -> Path:
     # copy module stubs next to test script
     for m in (TESTS / "modules").iterdir():
         shutil.copy(m, OUT / m.name)
+    # copy the device modules too, so `import <module>` inside watering.be
+    # resolves the same way it does on the device (root-level .be files).
+    # watering.be itself is concatenated above and must NOT also be staged:
+    # it is not imported by name and a second copy would be misleading.
+    staged = 0
+    for m in sorted(ROOT.glob("*.be")):
+        if m.name in ("watering.be", "autoexec.be"):
+            continue
+        shutil.copy(m, OUT / m.name)
+        staged += 1
+    print(f"staged {staged} device module(s) into {OUT}")
     return combined
 
 if __name__ == "__main__":
