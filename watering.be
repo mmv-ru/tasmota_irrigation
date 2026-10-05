@@ -4,6 +4,7 @@ import persist
 import string
 
 import cfg
+import web_kit
 
 def EMA(oldEMA, N, NewValue)
     import math
@@ -16,35 +17,6 @@ def EMA(oldEMA, N, NewValue)
     # https://www.investopedia.com/ask/answers/122314/what-exponential-moving-average-ema-formula-and-how-ema-calculated.asp
     var k = 2./(N + 1)
     return oldEMA*(1-k) + NewValue*k
-end
-
-# Web rendering helpers. The whole web UI is hand-built HTML emitted via
-# tasmota.web_send_decimal(); these two cover the two <tr> templates used
-# everywhere (sub-row and group header) so a label/style change lives in one
-# place instead of ~30 inline <tr> literals. Output is byte-identical to the
-# inline markup they replace.
-def wrow(label, value)
-    return "<tr class='sub'><th>" .. label .. "</th><td>" .. value .. "</td></tr>"
-end
-
-def wgrp(label)
-    return "<tr class='grp'><td colspan='2'>" .. label .. "</td></tr>"
-end
-
-# onclick attribute with a single quote rule: HTML attr value in single quotes,
-# JS inside may use double quotes freely (no Berry-level escape audit per site).
-def wonclick(js)
-    return "onclick='" .. js .. "'"
-end
-
-# Section-toggle onclick (header + chevron share the same _secToggle call).
-def wtoggle(sec)
-    return wonclick('_secToggle("' .. sec .. '");return false;')
-end
-
-# Header badge (raw/сухо/влажно pill in the section header row).
-def wpill(label, value)
-    return "<span class='pill'><b>" .. label .. "</b> " .. value .. "</span>"
 end
 
 class AbstractSensor
@@ -213,14 +185,14 @@ class SoilSensor: AbstractSensor
         # Section header as raw HTML: la() only rewrites the {s}/{m}/{e} tokens,
         # any other markup passes through to #l1 unchanged (border-radius etc.
         # styled by the injected <style> block, see web_add_main_button()).
-        msg = "<tr class='sec'><th class='hdr' " .. wtoggle(sec) .. ">"
-        msg = msg .. "<span class='st " .. stc .. "' " .. wonclick('_wdShowTT(this,event)') .. ">" .. st .. "</span>" .. nm
+        msg = "<tr class='sec'><th class='hdr' " .. web_kit.wtoggle(sec) .. ">"
+        msg = msg .. "<span class='st " .. stc .. "' " .. web_kit.wonclick('_wdShowTT(this,event)') .. ">" .. st .. "</span>" .. nm
         msg = msg .. "<span class='params'>"
         if self.RawEma != nil
-            msg = msg .. wpill("raw", string.format("%01.2f", self.RawEma))
+            msg = msg .. web_kit.wpill("raw", string.format("%01.2f", self.RawEma))
         end
-        msg = msg .. wpill("сухо", str(plant.TargetDry)) .. wpill("влажно", str(plant.TargetWet)) .. "</span>" ..
-                    "</th><td class='tgl'><a class='chev' href='#' " .. wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
+        msg = msg .. web_kit.wpill("сухо", str(plant.TargetDry)) .. web_kit.wpill("влажно", str(plant.TargetWet)) .. "</span>" ..
+                    "</th><td class='tgl'><a class='chev' href='#' " .. web_kit.wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
         # Expanded rows (Уставки/Датчик/settings button) live in
         # Watering.web_soil_detail — one method owns the whole channel detail.
         # Flooding/session state moved to the expanded detail too: the header
@@ -337,14 +309,14 @@ class FlowSensor: AbstractSensor
         var msg
         var nm = "Common"
         var arrow = expanded ? "▲" : "▼"
-        msg = "<tr class='sec'><th class='hdr' " .. wtoggle(sec) .. ">" .. nm ..
-              "</th><td class='tgl'><a class='chev' href='#' " .. wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
+        msg = "<tr class='sec'><th class='hdr' " .. web_kit.wtoggle(sec) .. ">" .. nm ..
+              "</th><td class='tgl'><a class='chev' href='#' " .. web_kit.wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
         msg = msg .. string.format(
-                  wrow("Water used", "%01.1f ml"),
+                  web_kit.wrow("Water used", "%01.1f ml"),
                   self.Raw2Flow(self.Raw))
         if expanded
             msg = msg .. string.format(
-                      wrow("Water flow", "%i pulse/s<br/><span class='stk'>%01.1f ml/min</span>"),
+                      web_kit.wrow("Water flow", "%i pulse/s<br/><span class='stk'>%01.1f ml/min</span>"),
                       self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
         end
 
@@ -2271,10 +2243,10 @@ class Watering
         var num = plant.Num
         try
             var ss = plant.SoilSensor
-            var msg = wgrp("Уставки")
+            var msg = web_kit.wgrp("Уставки")
             msg = msg .. string.format(
-                wrow("Сухо", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>") ..
-                wrow("Влажно", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>"),
+                web_kit.wrow("Сухо", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>") ..
+                web_kit.wrow("Влажно", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>"),
                 plant.TargetDry, ss.Raw2Hu(plant.TargetDry),
                 plant.TargetWet, ss.Raw2Hu(plant.TargetWet)
                 )
@@ -2285,15 +2257,15 @@ class Watering
             # survives the 2.3s polling redraw; see _wdSettingsOpen in
             # web_add_main_button().
             msg = msg .. string.format(
-                wrow("Настройки порогов",
+                web_kit.wrow("Настройки порогов",
                      "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' data-maxflood='%i' data-c1def='%i' " ..
-                     wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
+                     web_kit.wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
                 num, plant.TargetDry, plant.TargetWet,
                 plant.DryThreshold,
                 str(int(real(self.Store.get(plant.Prefix .. 'SoakStartDose')))),
                 int(real(self.Store.get(plant.Prefix .. 'MaxFlood'))),
                 int(real(self.Store.get(plant.Prefix .. 'Counter1FloodDefault'))))
-            msg = msg .. wgrp("Датчик")
+            msg = msg .. web_kit.wgrp("Датчик")
             # Values may be nil until the first sensor Update (unconnected
             # channels). Guard each one: show "nil" instead of crashing the
             # whole section (which would drop the header and make the accordion
@@ -2303,10 +2275,10 @@ class Watering
             var hu = ss.RawEma != nil ? string.format("%01.1f%%", ss.Raw2Hu(ss.RawEma)) : "nil"
             var mv = ss.Raw != nil ? string.format("%01.1f mV", ss.Raw2mV(ss.Raw)) : "nil"
             msg = msg .. string.format(
-                wrow("Raw", "%s") .. wrow("Raw EMA(%i)", "%s"),
+                web_kit.wrow("Raw", "%s") .. web_kit.wrow("Raw EMA(%i)", "%s"),
                 rawv, ss.EMAN, rawema)
             msg = msg .. string.format(
-                wrow("Hymidity u", "%s") .. wrow("mV", "%s"),
+                web_kit.wrow("Hymidity u", "%s") .. web_kit.wrow("mV", "%s"),
                 hu, mv)
             tasmota.web_send_decimal(msg)
             var dry_status = "none"
@@ -2324,33 +2296,33 @@ class Watering
                 end
             end
             msg = string.format(
-                      wgrp("Сеанс") .. wrow("Сеанс полива", "%s") .. wrow("Вода", "%s"),
+                      web_kit.wgrp("Сеанс") .. web_kit.wrow("Сеанс полива", "%s") .. web_kit.wrow("Вода", "%s"),
                       sess, pump)
             tasmota.web_send_decimal(msg)
             msg = string.format(
-                      wgrp("Размачивание") .. wrow("Dry soak", "%s") .. wrow("Dry threshold", "%i"),
+                      web_kit.wgrp("Размачивание") .. web_kit.wrow("Dry soak", "%s") .. web_kit.wrow("Dry threshold", "%i"),
                       dry_status, plant.DryThreshold)
             tasmota.web_send_decimal(msg)
-            msg = wgrp("Текущий сеанс")
+            msg = web_kit.wgrp("Текущий сеанс")
             if plant.SoilMaxHymidity != nil
                 msg += string.format(
-                        wrow("SoilHymidity" .. str(num) .. " max", "%i"),
+                        web_kit.wrow("SoilHymidity" .. str(num) .. " max", "%i"),
                         plant.SoilMaxHymidity)
                 if plant.SoilMaxHymidityTime != nil
                     msg += string.format(
-                            wrow("SoilHymidity" .. str(num) .. " max time", "%s"),
+                            web_kit.wrow("SoilHymidity" .. str(num) .. " max time", "%s"),
                             self._TimeStr(plant.SoilMaxHymidityTime))
                 end
             end
             msg += string.format(
-                    wrow("LastFloodVol (мл)", "%i") .. wrow("SoilHPreFlood", "%s"),
+                    web_kit.wrow("LastFloodVol (мл)", "%i") .. web_kit.wrow("SoilHPreFlood", "%s"),
                     int(plant.LastFloodVol), str(plant.SoilHPreFlood))
             tasmota.web_send_decimal(msg)
-            msg = wgrp("Предыдущий сеанс")
+            msg = web_kit.wgrp("Предыдущий сеанс")
             import introspect
             for k: ['PrevFloodedVol', 'PrevSoilHPreFlood', 'PrevSoilMaxHymidity']
                 msg += string.format(
-                          wrow("%s", "%s"),
+                          web_kit.wrow("%s", "%s"),
                           k, str(introspect.get(plant, k)))
             end
             tasmota.web_send_decimal(msg)
@@ -2359,10 +2331,10 @@ class Watering
             # the group survives a reboot. Emitted only when a fill has been
             # recorded (LastFloodTime set).
             if plant.LastFloodTime != nil
-                msg = wgrp("Последний полив")
-                msg += string.format(wrow("Last flood time", "%s"), self._TimeStr(plant.LastFloodTime))
+                msg = web_kit.wgrp("Последний полив")
+                msg += string.format(web_kit.wrow("Last flood time", "%s"), self._TimeStr(plant.LastFloodTime))
                 if plant.LastFlowRate != nil
-                    msg += string.format(wrow("Last flow rate", "%01.1f мл/мин"), plant.LastFlowRate)
+                    msg += string.format(web_kit.wrow("Last flow rate", "%01.1f мл/мин"), plant.LastFlowRate)
                 end
                 tasmota.web_send_decimal(msg)
             end
@@ -2379,7 +2351,7 @@ class Watering
         # Main-page status banner while the service mode is active.
         if self.ServiceMode
             try
-                tasmota.web_send_decimal(wrow("Сервисный режим", "включен"))
+                tasmota.web_send_decimal(web_kit.wrow("Сервисный режим", "включен"))
             except .. as e
                 print("web_sensor: service banner failed " .. e)
             end
@@ -2389,7 +2361,7 @@ class Watering
         # rate limit for the grace period (see _flow_low_check).
         if self.OutOfWater
             try
-                tasmota.web_send_decimal(wrow("Нет воды", "да"))
+                tasmota.web_send_decimal(web_kit.wrow("Нет воды", "да"))
             except .. as e
                 print("web_sensor: out-of-water banner failed " .. e)
             end
@@ -2519,9 +2491,9 @@ class Watering
         if exp_flow
             try
                 msg = string.format(
-                          wgrp("Сброс") ..
-                          wrow("Water counter",
-                               "<a class='wcbtn' href='#' " .. wonclick('if(confirm("Сбросить счётчик воды?")){la("&m_reset_water_counter_1=1");}return false;') .. ">Reset</a>"))
+                          web_kit.wgrp("Сброс") ..
+                          web_kit.wrow("Water counter",
+                               "<a class='wcbtn' href='#' " .. web_kit.wonclick('if(confirm("Сбросить счётчик воды?")){la("&m_reset_water_counter_1=1");}return false;') .. ">Reset</a>"))
                 tasmota.web_send_decimal(msg)
             except .. as e
                 print("web_sensor: reset counter row failed " .. e)

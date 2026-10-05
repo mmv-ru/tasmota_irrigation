@@ -19,6 +19,7 @@ tasmota_host = '172.17.252.43'
 # src-split plan appends its module here.
 MODULE_FILES = (
     'cfg.be',
+    'web_kit.be',
     'watering.be',
 )
 filename = 'watering.be'
