@@ -1,6 +1,9 @@
 # Состояния и переходы алгоритма автополива (event-driven FSM, многоканально)
 
-> Диаграмма отражает **текущую** логику `watering.be` (итерация 2 — многоканальность).
+> Диаграмма отражает **текущую** логику проекта (итерация 2 — многоканальность). После
+> разбиения на модули точка входа — `watering.be` (диспетчер и телеметрия), а
+> `Plant`/`FloodPreset` живут в `fsm.be`, сенсоры — в `sensors.be`, `PersistStore` — в
+> `store.be`, UI — в `web.be`. Карта файлов: `AGENTS.md`.
 > Архитектура: `Watering` = диспетчер + общие ресурсы (SoilSensors A1..A4, общие
 > FlowSensors C1/C2, общий PersistStore), `Plant` = канал (свой насос `Power{Num}`,
 > свой SoilSensor, своя FSM, свои persist-ключи `P{Num}_*`). `MAX_CHANNELS = 4`.
@@ -330,7 +333,7 @@ timer_soil_transition_after_flooded →
 
 ### `estimateflood()` и планирование дозы
 
-- **Формула** (watering.be `Plant.estimateflood()`):
+- **Формула** (`fsm.be`, `Plant.estimateflood()`):
   `EstimatedFlood = PrevFloodedVol × (RawEma − RawWet) / (PrevSoilHPreFlood − PrevSoilMaxHymidity)`.
 - Использует персистенные `Prev*` (выше) и динамику: `RawEma` (in-memory EMA, `EMAN=600`, smoothing `k=2/(N+1)`) и `RawWet` (`P{Num}TargetWet`).
 - Если `EstimatedFlood < 15` (мл) или исключение/отсутствие данных → `nil` → `planned_dose()` возвращает `Counter1FloodDefault`.
