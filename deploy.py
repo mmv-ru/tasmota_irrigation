@@ -275,8 +275,14 @@ class Tasmota:
         log = C[1:-2]
         D = C[-1:]
         C = C[0:1]
+        # Line breaks arrive as real "\n" on 14.1.0.3(6673fb9) (measured: 51
+        # "\n", 0 "/n"), while older console output escaped them as "/n".
+        # Splitting on "/n" alone matched nothing and returned the WHOLE log as
+        # one element: substring detection still worked, but a detected crash
+        # was printed as a single giant "line" and line counts were chunk
+        # counts. Normalise both spellings.
         return {'LastMsg': LastMsg, 'B': B, 'C': C, 'D': D,
-                'lines': log.split("/n")}
+                'lines': log.replace("/n", "\n").split("\n")}
 
     def consoleCommand(self, command: str):
         """Tasmota command"""

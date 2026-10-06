@@ -32,6 +32,11 @@ from deploy import (Tasmota, tasmota_host, WEB_TIMEOUT, INIT_MARKER,
 TELEMETRY_CMND = 'Status 10'
 SVC_PAGE_MARKER = 'Сервисный режим'
 
+# Cold-restart timing (measured on the device: webserver comes back in 10-20 s,
+# but the command itself takes a moment to start rebooting).
+RESTART_DOWN_TIMEOUT = 20.0  # seconds to watch the device go dark after Restart 1
+WEB_UP_TIMEOUT = 25.0        # seconds to wait for the main page to answer 200 again
+
 
 def _get(t, url, problems, ping_info, params=None, what=''):
     """GET with the shared timeout, turning a network error into a ping note.
@@ -133,7 +138,13 @@ def check_log(t, problems, ping_info, wait_for_marker):
         lines = t.collect_log(problems, ping_info)
         crashes, init_ok = analyze_log(lines)
         if not init_ok:
-            return  # collect_log already reported the timeout
+            if not lines:
+                # collect_log reported nothing of its own (network error path
+                # is already covered by ping_note) — say it plainly anyway.
+                problems.append(f"лог после Restart 1 не прочитан — маркер "
+                                f"'{INIT_MARKER}' не найден")
+            # non-empty: collect_log already appended the marker timeout
+            return
     else:
         lines = read_log(t, problems, ping_info)
         if lines is None:
@@ -150,8 +161,48 @@ def check_log(t, problems, ping_info, wait_for_marker):
     print(f"log: {len(lines)} строк в окне, {len(crashes)} crash")
 
 
+def wait_down(t, timeout):
+    """Wait until the device stops answering — the *start* of the reboot.
+
+    `Restart 1` does not reboot instantly: Tasmota finishes the command first
+    (saves settings, closes sessions), so the web server keeps serving for a
+    moment. `wait_device_up()` polls every 2 s and happily returns True inside
+    that pre-restart window; the checks that follow then run against a device
+    that is actually rebooting and every one of them fails with connection
+    refused (observed in the field). So: wait for the device to go dark first,
+    and only then wait for it back."""
+    begin = time.monotonic()
+    while time.monotonic() - begin < timeout:
+        try:
+            t.session.get(f'http://{t.tasmota_host}/cs', timeout=(2, 3))
+            time.sleep(1)
+        except requests.exceptions.RequestException:
+            print("device went down (reboot started)")
+            return True
+    print(f"note: устройство не уходило в офлайн за {int(timeout)} с — продолжаем")
+    return False
+
+
+def wait_web_up(t, timeout):
+    """Wait until the main page answers 200.
+
+    `wait_device_up()` only proves `/cs` (the console endpoint) is reachable;
+    the HTTP checks need the page itself, and Berry may still be loading its
+    modules at that point. Polling the actual URL makes the run deterministic."""
+    begin = time.monotonic()
+    while time.monotonic() - begin < timeout:
+        try:
+            r = t.session.get(f'http://{t.tasmota_host}/', timeout=(3, 5))
+            if r.status_code == 200:
+                return True
+        except requests.exceptions.RequestException:
+            pass
+        time.sleep(2)
+    return False
+
+
 def cold_restart(t, problems, ping_info):
-    """Send `Restart 1`, wait the device back, then wait for the init marker."""
+    """Send `Restart 1`, wait the device down and back, then the init marker."""
     print("Cold start: Restart 1")
     try:
         t.consoleCommand('Restart 1')
@@ -159,10 +210,13 @@ def cold_restart(t, problems, ping_info):
         print(f"Restart command failed (network): {e}")
         ping_note(t.tasmota_host, problems, ping_info)
         return False
+    wait_down(t, timeout=RESTART_DOWN_TIMEOUT)
     if not t.wait_device_up():
         problems.append("устройство не вернулось после полного рестарта (Restart 1)")
         return False
-    time.sleep(2)
+    if not wait_web_up(t, timeout=WEB_UP_TIMEOUT):
+        problems.append("главная страница не поднялась после Restart 1")
+        return False
     return True
 
 
