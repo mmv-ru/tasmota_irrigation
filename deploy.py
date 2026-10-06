@@ -176,16 +176,40 @@ class Tasmota:
         return response.content
 
     def files_equal(self, filename) -> bool:
-        """True if device copy matches local file"""
+        """True if device copy matches local file.
+
+        A device that does NOT have the file yet answers
+        /ufsd?download=/<file> by holding the connection open and then resetting
+        it instead of returning 404 (measured on 14.1.0.3: a missing file hangs,
+        an existing one downloads in <1s). So a failed download cannot mean
+        "equal" - and it must not abort the deploy either, otherwise the very
+        first multi-file deploy can never add a file. Unreadable therefore
+        means "differs", which sends the file through the upload path.
+        """
         with open(filename, 'rb') as f:
             data_file = f.read()
-        return self.download(filename) == data_file
+        try:
+            return self.download(filename) == data_file
+        except requests.exceptions.RequestException as e:
+            print(f"'{filename}': device copy unreadable ({type(e).__name__}) "
+                  f"-> treating as different, will upload")
+            return False
 
     def print_unidiff(self, filename):
-        """Print unidiff between local file and device copy"""
+        """Print unidiff between local file and device copy.
+
+        Best-effort: this runs only on a verification failure, and a device that
+        will not serve the file cannot be diffed against. Raising here would
+        abort the deploy loop and hide the remaining files.
+        """
         with open(filename, 'rb') as f:
             data_file = f.read()
-        data_loaded = self.download(filename)
+        try:
+            data_loaded = self.download(filename)
+        except requests.exceptions.RequestException as e:
+            print(f"Unidiff '{filename}': device copy unreadable "
+                  f"({type(e).__name__}), cannot diff")
+            return
         dmp = diff_match_patch.diff_match_patch()
         dmp.Diff_Timeout = 1
         diffs = dmp.diff_main(data_loaded.decode("utf-8"),
