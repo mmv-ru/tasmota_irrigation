@@ -168,9 +168,14 @@ class Web
     end
 
     def web_add_handler()
-        # Called by Tasmota once the web server is up: register the /svc route
-        # bound to this instance (a closure captures self). The main-page button
-        # in web_add_main_button() navigates here.
+        # Two callers, no guard on our side (a guard would block the cold-boot
+        # case, where this first call is a C-side no-op and the official event
+        # must be allowed to register for real):
+        #  1. Tasmota's one-shot FUNC_WEB_ADD_HANDLER - one per VM, may fire
+        #     before this driver exists;
+        #  2. Watering.init_sensors(), right after add_driver() - that is what
+        #     makes /svc survive BrRestart.
+        # The main-page button in web_add_main_button() navigates here.
         import webserver
         webserver.on("/svc", / -> self.page_service(), webserver.HTTP_GET)
         print("Watering: /svc page registered")

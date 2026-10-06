@@ -344,6 +344,16 @@ class Watering
         end
 
         tasmota.add_driver(self)
+        # Register /svc from the deferred init itself, the pattern the
+        # heating-controller reference uses in start(). Tasmota's
+        # web_add_handler event is one-shot per VM and can fire before this
+        # driver exists (BrRestart dispatches it on the first loop tick, while
+        # add_driver runs ~4 s after load) - so waiting for it leaves /svc dead
+        # after every VM restart. A repeat call is harmless: the firmware
+        # reuses the slot keyed by prefix+method, and when the webserver object
+        # does not exist yet webserver.on() is a silent no-op that the official
+        # event later completes (our driver is in _drivers by then).
+        self.web_add_handler()
         tasmota.cmd('PowerOnState 0') # relay off after PowerOn
         tasmota.cmd('SetOption73 1') # Detach buttons from relays
         tasmota.add_rule("BUTTON1", / v, t -> self.rule_button1(v, t))

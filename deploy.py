@@ -500,6 +500,10 @@ def main():
         print("Deploy FAILED")
         sys.exit(1)
     print("Deploy OK: upload verified, no startup errors, main page up")
+    # Deliberately not folded into this exit code: a flaky post-deploy check
+    # must not turn a successful upload into a "deploy failed". check_device.py
+    # can be re-run on its own, as often as needed.
+    print("Next step: .pyvenv/bin/python check_device.py")
     sys.exit(0)
 
 
