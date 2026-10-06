@@ -158,6 +158,12 @@ end
 # the harness reaches raw persist, the driver cannot.
 import persist
 
+# The shipped script touches `webserver` only from web.be, so it no longer
+# imports it. Test cases, however, are concatenated into the combined file and
+# override the request stubs (webserver.has_arg / webserver.arg) to drive
+# scenarios, so the name must stay in scope for them.
+import webserver
+
 # ---------------- global stub so boot introspect.get(global,"wp1") works ----------------
 var global = module('global')
 global.wp1 = nil

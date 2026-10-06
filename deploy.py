@@ -23,6 +23,7 @@ MODULE_FILES = (
     'store.be',
     'sensors.be',
     'fsm.be',
+    'web.be',
     'watering.be',
 )
 filename = 'watering.be'
