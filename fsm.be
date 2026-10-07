@@ -5,7 +5,6 @@ import introspect
 
 import store
 import sensors
-import web_kit
 
 var fsm = module('fsm')
 

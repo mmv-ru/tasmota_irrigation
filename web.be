@@ -29,142 +29,15 @@ class Web
         return s
     end
     def web_add_main_button()
+        # Кнопка перехода на /svc + оформление главной страницы. CSS и JS
+        # живут в web_kit (слой «как делается HTML»): блоки собираются там
+        # один раз при загрузке модуля, здесь они только уходят браузеру.
+        # Формы Soil Dry/Wet, Dry threshold, Soak start dose, Max flood и
+        # flood dose default живут в попапе канала (web_soil_detail +
+        # _wdSettingsOpen в web_kit.main_js).
         webserver.content_send("<p></p><button onclick='location.href=\"svc\";'>Сервисный режим</button>")
-        # Section design (variant B): band headers with badges and a status
-        # Styled via an injected <style> block (la() only rewrites {s}/{m}/{e},
-        # everything else lands in #l1 verbatim). CSS rules are kept as a list
-        # of strings, one rule per element, joined once — avoids the old
-        # ..-monolith where a color change meant editing 5 inline literals.
-        # Palette lives in CSS variables (:root) so restyling is one line.
-        var css = [
-            "<style>",
-            ":root{"..
-              "--wd-acc:#1fa3ec;--wd-acc-h:#33b1f5;--wd-acc-a:#0f8fd6;"..
-              "--wd-green:#8bc34a;--wd-pill-bg:#25303d;--wd-btn-tx:#0a0a0a;"..
-              "--wd-bg-hdr:#3a3a3a;--wd-bg-hdr-h:#444;"..
-              "--wd-tx:#eaeaea;--wd-tx-sub:#ccc;--wd-tx-grp:#8ca0b3;--wd-tx-pill:#7a8aa0;--wd-tx-tt:#b8c4cf;"..
-              "--wd-bd:#3e3e3e;--wd-pop-bg:#1b2127;--wd-tt-bg:#232a33;--wd-in-bg:#12161b;}",
-            # section bands (headers + chevrons)
-            "#l1 table{border-collapse:separate;border-spacing:0;}",
-            "#l1 tr.sec{display:table-row;width:100%;}",
-            "#l1 tr.sec + tr td[colspan='2'] hr{display:none;}",
-            "#l1 tr.sec + tr td[colspan='2']{height:2px;line-height:2px;}",
-            "#l1 tr.sec th.hdr,#l1 tr.sec td.tgl{background:var(--wd-bg-hdr);transition:background .2s;cursor:pointer;}",
-            "#l1 tr.sec th.hdr{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;vertical-align:middle;border-left:4px solid var(--wd-acc);border-radius:8px 0 0 8px;padding:8px 10px;font-weight:600;font-size:.95rem;color:var(--wd-tx);}",
-            "#l1 tr.sec th.hdr .params{margin-left:auto;}",
-            "#l1 tr.sec td.tgl{display:table-cell;vertical-align:middle;text-align:right;border-radius:0 8px 8px 0;padding:0 10px;white-space:nowrap;}",
-            "#l1 tr.sec:hover th.hdr,#l1 tr.sec:hover td.tgl{background:var(--wd-bg-hdr-h);}",
-            "#l1 tr.sec a.chev{color:var(--wd-acc);text-decoration:none;font-size:1.1rem;padding:4px 2px;display:inline-block;vertical-align:middle;}",
-            "#l1 tr.sec .pill{vertical-align:middle;}",
-            # sub rows / group headers / buttons
-            "#l1 tr.sub th{padding:3px 10px 3px 26px;color:var(--wd-tx-sub);font-weight:400;font-size:.88rem;}",
-            "#l1 tr.sub td{padding:3px 10px;text-align:right;color:#fff;font-weight:500;font-size:.88rem;}",
-            "#l1 tr.grp td{padding:8px 10px 2px 26px;color:var(--wd-tx-grp);font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-top:1px solid var(--wd-bd);}",
-            "#l1 a.wcbtn{display:inline-block;background:var(--wd-acc);color:var(--wd-btn-tx);padding:2px 12px;border-radius:10px;font-size:.8rem;font-weight:600;text-decoration:none;cursor:pointer;}",
-            "#l1 a.wcbtn:hover{background:var(--wd-acc-h);}",
-            "#l1 a.wcbtn:active{background:var(--wd-acc-a);}",
-            "#l1 .stk{display:block;color:var(--wd-tx-grp);font-size:.75rem;font-weight:400;}",
-            "#l1 .pill{display:inline-block;background:var(--wd-pill-bg);color:var(--wd-green);padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:600;margin-right:4px;}",
-            "#l1 .pill b{color:var(--wd-green);font-weight:600;}",
-            "#l1 .pill b:first-child{color:var(--wd-tx-pill);font-weight:400;}",
-            # status icons (wait/sess/run) + pulse animations
-            "#l1 .st{display:inline-block;font-size:1.4rem;line-height:1;vertical-align:middle;margin-right:6px;cursor:pointer;}",
-            "#l1 .st.wait{filter:grayscale(1);opacity:.75;}",
-            "#l1 .st.sess{animation:wdsess 1.6s ease-in-out infinite;}",
-            "#l1 .st.run{animation:wdrun 1s ease-in-out infinite;}",
-            "@keyframes wdsess{0%,100%{opacity:1}50%{opacity:.3}}",
-            "@keyframes wdrun{0%,100%{opacity:1}50%{opacity:.3}}",
-            # status tooltip (#wdtt)
-            "#wdtt{position:fixed;z-index:9999;display:none;background:var(--wd-tt-bg);border:1px solid var(--wd-bd);border-radius:8px;padding:6px 10px;font-size:.8rem;line-height:1.6;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);}",
-            "#wdtt .ttrow{display:flex;align-items:center;gap:8px;min-width:160px;color:var(--wd-tx-tt);}",
-            "#wdtt .ttrow.cur{color:var(--wd-green);}",
-            "#wdtt .ttmark{display:inline-block;width:16px;text-align:center;}",
-            "#wdtt .ttic{display:inline-block;width:20px;text-align:center;vertical-align:middle;}",
-            "#wdtt .ttdrop{display:inline-block;font-size:.9rem;filter:grayscale(1);opacity:.8;vertical-align:-2px;}",
-            # per-channel settings popup (#wdsv)
-            "#wdsv{position:fixed;z-index:9998;display:none;inset:0;background:rgba(0,0,0,.55);align-items:center;justify-content:center;}",
-            "#wdsv.open{display:flex;}",
-            "#wdsv .box{background:var(--wd-pop-bg);border:1px solid var(--wd-bd);border-radius:12px;min-width:260px;box-shadow:0 6px 24px rgba(0,0,0,.5);}",
-            "#wdsv .hd{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--wd-bd);color:var(--wd-tx);font-weight:600;}",
-            "#wdsv .hd a{color:var(--wd-tx-grp);text-decoration:none;font-size:1.1rem;cursor:pointer;}",
-            "#wdsv .bd{padding:10px 14px;display:flex;flex-direction:column;gap:8px;}",
-            "#wdsv .bd label{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--wd-tx-tt);font-size:.85rem;}",
-            "#wdsv .bd input{width:7em;padding:3px 6px;background:var(--wd-in-bg);color:#fff;border:1px solid var(--wd-bd);border-radius:6px;text-align:right;}",
-            "#wdsv .ft{display:flex;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid var(--wd-bd);}",
-            "#wdsv a.wcbtn{margin-left:0;}",
-            "</style>",
-        ]
-        var style = ""
-        for c: css style = style .. c end
-        webserver.content_send(style)
-        # Script inject, same list-of-strings approach as the CSS above. Keeps
-        # the Berry-level `..` concatenation out of the JS source so a JS
-        # string containing quotes needs no hand-audited escape matrix.
-        var jsp = [
-            # Per-tab per-section expand state lives in the browser URL as one
-            # compact param me (1..9 = channels, c = Common; e.g. me=12c):
-            # every poll from this tab carries its own me, URL is rewritten via
-            # history.replaceState so a refresh keeps the tab's view. No
-            # server-side global flag.
-            "<script>try{",
-            "if(typeof window._wdInit==='undefined'){",
-              "window._wdInit=true;",
-              "var _m=location.search.match(/[?&]me=([0-9c]*)/);_m=_m?_m[1]:'';",
-              "window._wdSec={};",
-        ]
-        for i: 0..(self.d.NumChannels - 1)
-            jsp.push("window._wdSec['soil" .. str(i + 1) .. "']=_m.indexOf('" .. str(i + 1) .. "')>=0;")
-        end
-        jsp.push("window._wdSec.flow=_m.indexOf('c')>=0;")
-        jsp.push("window._wdEnc=function(){var s='';")
-        for i: 0..(self.d.NumChannels - 1)
-            jsp.push("if(window._wdSec['soil" .. str(i + 1) .. "'])s+='" .. str(i + 1) .. "';")
-        end
-        jsp.push("if(window._wdSec.flow)s+='c';return s;};")
-        jsp.push("var _la0=window.la;")
-        jsp.push("window.la=function(p){var np=p||'';")
-        jsp.push("if(np.indexOf('me=')===-1){np+='&me='+window._wdEnc();}")
-        jsp.push("_la0(np);};")
-        jsp.push("window._secToggle=function(name){")
-        jsp.push("window._wdSec[name]=!window._wdSec[name];")
-        jsp.push("var u='?me='+window._wdEnc();")
-        jsp.push("try{history.replaceState(null,'',u);}catch(e){}")
-        jsp.push("la('');};")
-        jsp.push("window._wdTT=null;")
-        jsp.push("window._wdShowTT=function(ic,ev){if(ev&&ev.stopPropagation)ev.stopPropagation();var t=window._wdTT;")
-        jsp.push("if(t&&t.style.display!=='none'){t.style.display='none';return;}")
-        jsp.push("if(!t){t=document.createElement('div');t.id='wdtt';document.body.appendChild(t);window._wdTT=t;}")
-        jsp.push("var cls=ic.className.indexOf('run')>=0?'run':ic.className.indexOf('sess')>=0?'sess':'wait';")
-        jsp.push("var R=[['wait','Ожидание'],['sess','Сеанс полива'],['run','Работа насоса']];")
-        jsp.push("var h='';for(var i=0;i<3;i++){var s=R[i][0];")
-        jsp.push("var ic2=s=='wait'?'<span class=\"ttdrop\">💧</span>':(s=='sess'?'⏳':'💦');")
-        jsp.push("h+='<div class=\"ttrow'+(s==cls?' cur':'')+'\"><span class=\"ttmark\">'+(s==cls?'→':'')+'</span><span class=\"ttic\">'+ic2+'</span><span>'+R[i][1]+'</span></div>';}")
-        jsp.push("t.innerHTML=h;t.style.display='block';")
-        jsp.push("var r=ic.getBoundingClientRect();var tw=t.offsetWidth;")
-        jsp.push("var x=r.left-tw-8;if(x<4)x=r.right+8;var y=r.top+r.height/2-t.offsetHeight/2;if(y<4)y=r.top+8;")
-        jsp.push("t.style.left=x+'px';t.style.top=y+'px';};")
-        jsp.push("document.addEventListener('click',function(e){if(window._wdTT&&window._wdTT.style.display!=='none'){if(!e.target.closest('.st')&&!e.target.closest('#wdtt'))window._wdTT.style.display='none';}},true);")
-        jsp.push("window._wdSett=null;")
-        jsp.push("var _wdF=[['wds_dry','Soil Dry(Raw)','m_soildry_','dry'],['wds_wet','Soil Wet(Raw)','m_soilwet_','wet'],['wds_thr','Dry threshold(Raw)','m_drythr_','thr'],['wds_dose','Soak start dose (ml)','m_soakdose_','dose'],['wds_maxflood','Max flood (ml)','m_maxflood_','maxflood'],['wds_c1def','Flood dose default (ml)','m_c1def_','c1def']];")
-        jsp.push("window._wdSettingsOpen=function(a){")
-        jsp.push("if(!window._wdSett){var d=document.createElement('div');d.id='wdsv';var h='<div class=\"box\"><div class=\"hd\"><span>Настройки полива</span><a href=\"#\" onclick=\"_wdSettingsClose();return false;\">✕</a></div><div class=\"bd\">';")
-        jsp.push("for(var i=0;i<_wdF.length;i++){h+='<label>'+_wdF[i][1]+' <input id=\"'+_wdF[i][0]+'\" type=\"text\"></label>';}")
-        jsp.push("h+='</div><div class=\"ft\"><a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsSave();return false;\">Сохранить</a><a class=\"wcbtn\" href=\"#\" onclick=\"_wdSettingsClose();return false;\">Отмена</a></div></div>';d.innerHTML=h;document.body.appendChild(d);window._wdSett=d;}")
-        jsp.push("window._wdSett._num=a.getAttribute('data-num');")
-        jsp.push("for(var i=0;i<_wdF.length;i++){eb(_wdF[i][0]).value=a.getAttribute('data-'+_wdF[i][3]);}")
-        jsp.push("window._wdSett.className+=' open';};")
-        jsp.push("window._wdSettingsClose=function(){if(window._wdSett)window._wdSett.className=window._wdSett.className.replace(' open','');};")
-        jsp.push("window._wdSettingsSave=function(){var n=window._wdSett._num,q='';")
-        jsp.push("for(var i=0;i<_wdF.length;i++){var a=_wdF[i][2].slice(0,-1);if(n>1)a+='_'+n;q+='&'+a+'='+encodeURIComponent(eb(_wdF[i][0]).value);}")
-        jsp.push("la(q);window._wdSettingsClose();};")
-        jsp.push("}")
-        jsp.push("}catch(e){}</script>")
-        var js = ""
-        for f: jsp js = js .. f end
-        webserver.content_send(js)
-        # Soil Dry/Wet, Dry threshold, Soak start dose, Max flood and flood dose
-        # default forms moved into the per-channel detail popup (see
-        # web_soil_detail + _wdSettingsOpen).
+        webserver.content_send(web_kit.css)
+        webserver.content_send(web_kit.main_js(self.d.NumChannels))
     end
 
     def web_add_handler()
@@ -526,15 +399,11 @@ class Web
 
 
     def _soil_section(expanded, sec, plant, sensor)
-        # Moved verbatim from SoilSensor.web_sensor (ADR-6 closed): pure
-        # rendering from explicit inputs; self. sensor reads became sensor.
-        var msg
-        var nm = "Канал " .. str(plant.Num)
-        var arrow = expanded ? "▲" : "▼"
-        # Per-channel status icon in the header: 💧 wait / ⏳ watering
-        # session / 💦 pump running, shown left of the title. A JS tooltip
-        # (#wdtt, opened by a click on the icon) shows a styled legend of all
-        # three states, the current one marked "→".
+        # Шапка канала (перенесено из SoilSensor.web_sensor, ADR-6 закрыт).
+        # Сборка разметки шапки — web_kit (wsec_head/wsec_icon/wpill); здесь
+        # только доменная логика: какое состояние какой иконкой показывать.
+        # Иконка слева от названия: 💧 ожидание / ⏳ сеанс полива / 💦 работает
+        # насос; клик по ней открывает легенду (#wdtt, JS в web_kit.main_js).
         var st = "💧"
         var stc = "wait"
         if plant.WaterIsOn()
@@ -544,147 +413,151 @@ class Web
             st = "⏳"
             stc = "sess"
         end
-        # Section header as raw HTML: la() only rewrites the {s}/{m}/{e} tokens,
-        # any other markup passes through to #l1 unchanged (border-radius etc.
-        # styled by the injected <style> block, see web_add_main_button()).
-        msg = "<tr class='sec'><th class='hdr' " .. web_kit.wtoggle(sec) .. ">"
-        msg = msg .. "<span class='st " .. stc .. "' " .. web_kit.wonclick('_wdShowTT(this,event)') .. ">" .. st .. "</span>" .. nm
-        msg = msg .. "<span class='params'>"
+        var pills = ""
         if sensor.RawEma != nil
-            msg = msg .. web_kit.wpill("raw", string.format("%01.2f", sensor.RawEma))
+            pills = pills .. web_kit.wpill("raw", string.format("%01.2f", sensor.RawEma))
         end
-        msg = msg .. web_kit.wpill("сухо", str(plant.TargetDry)) .. web_kit.wpill("влажно", str(plant.TargetWet)) .. "</span>" ..
-                    "</th><td class='tgl'><a class='chev' href='#' " .. web_kit.wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
-        # Expanded rows (Уставки/Датчик/settings button) live in
-        # Watering.web_soil_detail — one method owns the whole channel detail.
-        # Flooding/session state moved to the expanded detail too: the header
-        # carries the status icon instead of a per-row text.
-
-        tasmota.web_send_decimal(msg)
-
+        pills = pills .. web_kit.wpill("сухо", str(plant.TargetDry)) .. web_kit.wpill("влажно", str(plant.TargetWet))
+        # Детальное тело канала (Уставки/Датчик/кнопка настроек) и статусы
+        # сессии/помпы — в web_soil_detail; в шапке осталась только иконка.
+        tasmota.web_send_decimal(web_kit.wsec_head(sec, web_kit.wsec_icon(stc, st),
+            "Канал " .. str(plant.Num), pills, expanded))
     end
 
     def _flow_section(expanded, sec, sensor)
-        # Moved verbatim from FlowSensor.web_sensor (ADR-6 closed).
-        var msg
-        var nm = "Common"
-        var arrow = expanded ? "▲" : "▼"
-        msg = "<tr class='sec'><th class='hdr' " .. web_kit.wtoggle(sec) .. ">" .. nm ..
-              "</th><td class='tgl'><a class='chev' href='#' " .. web_kit.wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
-        msg = msg .. string.format(
-                  web_kit.wrow("Water used", "%01.1f ml"),
-                  sensor.Raw2Flow(sensor.Raw))
+        # Перенесено из FlowSensor.web_sensor (ADR-6 закрыт). Шапка Common —
+        # без иконки и бейджей; под ней всегда расход за всё время, при
+        # раскрытии — ещё и мгновенный расход (импульсы + мл/мин).
+        var msg = web_kit.wsec_head(sec, "", "Common", "", expanded)
+        msg += web_kit.wparam_stack("Water used",
+            [string.format("%01.1f ml", sensor.Raw2Flow(sensor.Raw))])
         if expanded
-            msg = msg .. string.format(
-                      web_kit.wrow("Water flow", "%i pulse/s<br/><span class='stk'>%01.1f ml/min</span>"),
-                      sensor.RawRate, sensor.Rate != nil ? sensor.Rate*60 : nil)
+            msg += web_kit.wparam_stack("Water flow", [
+                string.format("%i pulse/s", sensor.RawRate),
+                string.format("%01.1f ml/min", sensor.Rate != nil ? sensor.Rate * 60 : nil)])
         end
-
         tasmota.web_send_decimal(msg)
     end
 
-    def web_soil_detail(pi)
-        # Per-channel accordion detail, shared by every soil section: sensor
-        # thresholds (Уставки) with the settings button, live sensor values
-        # (Датчик), session/pump status, dry soak and the previous/current
-        # session stats — everything under one expanded channel. One method
-        # owns the whole detail (_soil_section only emits the header).
-        var plant = self.d.plants[pi]
+    def _soil_model(plant, ss)
+        # Модель детального тела канала — читается как опись интерфейса:
+        # секции (группы) → параметры → один или более «масштабов» вывода.
+        #   секция   = [заголовок, [параметр, ...]]
+        #   параметр = [метка, [шкала, ...]] — первая шкала в ячейке,
+        #              остальные уходят подстроками .stk (см. wparam_stack)
+        # Значения здесь уже готовы к показу (nil-защита выполнена);
+        # условный элемент — это отсутствие его в списке: условий внутри
+        # строк и шаблонов нет. Считает — web_soil_detail, он же шлёт.
         var num = plant.Num
+        var groups = []
+
+        # --- секция «Уставки» ------------------------------------------------
+        # Кнопка настроек открывает JS-попап канала: значения полей — в data-*,
+        # отправляемые аргументы (m_soildry_N и т.д.) разбирает web_sensor().
+        var settings = string.format(
+            "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' data-maxflood='%i' data-c1def='%i' %s>⚙</a>",
+            num, plant.TargetDry, plant.TargetWet,
+            plant.DryThreshold,
+            str(int(real(self.d.Store.get(plant.Prefix .. 'SoakStartDose')))),
+            int(real(self.d.Store.get(plant.Prefix .. 'MaxFlood'))),
+            int(real(self.d.Store.get(plant.Prefix .. 'Counter1FloodDefault'))),
+            web_kit.wonclick('_wdSettingsOpen(this);return false;'))
+        groups.push(['Уставки', [
+            ['Сухо', [string.format("%01.2f raw", plant.TargetDry),
+                      string.format("%01.1f%% u", ss.Raw2Hu(plant.TargetDry))]],
+            ['Влажно', [string.format("%01.2f raw", plant.TargetWet),
+                        string.format("%01.1f%% u", ss.Raw2Hu(plant.TargetWet))]],
+            ['Настройки порогов', [settings]],
+        ]])
+
+        # --- секция «Датчик» ------------------------------------------------
+        # До первого Update значения могут быть nil — показываем "nil" вместо
+        # падения (иначе теряется шапка и аккордеон не раскрывается).
+        var rawv = ss.Raw != nil ? str(ss.Raw) : "nil"
+        var rawema = ss.RawEma != nil ? string.format("%01.4f", ss.RawEma) : "nil"
+        var hu = ss.RawEma != nil ? string.format("%01.1f%%", ss.Raw2Hu(ss.RawEma)) : "nil"
+        var mv = ss.Raw != nil ? string.format("%01.1f mV", ss.Raw2mV(ss.Raw)) : "nil"
+        groups.push(['Датчик', [
+            ['Raw', [rawv]],
+            [string.format("Raw EMA(%i)", ss.EMAN), [rawema]],
+            ['Hymidity u', [hu]],
+            ['mV', [mv]],
+        ]])
+
+        # --- секция «Сеанс» -------------------------------------------------
+        # Сеанс полива: active (идёт заливка) / wait. Помпа: run|idle, при
+        # работающей помпе к статусу добавляется живой расход (ml/min).
+        var sess = plant.AutofloodInProcess ? "active" : "wait"
+        var pump = plant.WaterIsOn() ? "run" : "idle"
+        if plant.WaterIsOn()
+            var rate = self.d.FlowSensors[0].Rate
+            if rate != nil
+                pump = pump .. " " .. string.format("%01.1f", rate * 60) .. " ml/min"
+            end
+        end
+        groups.push(['Сеанс', [
+            ['Сеанс полива', [sess]],
+            ['Вода', [pump]],
+        ]])
+
+        # --- секция «Размачивание» ------------------------------------------
+        var dry_status = "none"
+        if plant.Preset != nil && plant.Preset.Type == 'dry'
+            dry_status = "soak, dose " .. (plant.DrySoakDose != nil ? str(plant.DrySoakDose) : "?")
+        end
+        groups.push(['Размачивание', [
+            ['Dry soak', [dry_status]],
+            ['Dry threshold', [string.format("%i", plant.DryThreshold)]],
+        ]])
+
+        # --- секция «Текущий сеанс» -----------------------------------------
+        var cur = []
+        if plant.SoilMaxHymidity != nil
+            cur.push(['SoilHymidity' .. str(num) .. ' max',
+                      [string.format("%i", plant.SoilMaxHymidity)]])
+            if plant.SoilMaxHymidityTime != nil
+                cur.push(['SoilHymidity' .. str(num) .. ' max time',
+                          [self._TimeStr(plant.SoilMaxHymidityTime)]])
+            end
+        end
+        cur.push(['LastFloodVol (мл)', [string.format("%i", int(plant.LastFloodVol))]])
+        cur.push(['SoilHPreFlood', [str(plant.SoilHPreFlood)]])
+        groups.push(['Текущий сеанс', cur])
+
+        # --- секция «Предыдущий сеанс» --------------------------------------
+        var prev = []
+        for k: ['PrevFloodedVol', 'PrevSoilHPreFlood', 'PrevSoilMaxHymidity']
+            prev.push([k, [str(introspect.get(plant, k))]])
+        end
+        groups.push(['Предыдущий сеанс', prev])
+
+        # --- секция «Последний полив» (только после первого заполнения) -----
+        # Дата и средний расход последнего полива живут в Store
+        # (P{N}LastFloodTime / P{N}LastFlowRate, см. _record_flood) и
+        # переживают ребут; группа появляется только при записанном поливе.
+        if plant.LastFloodTime != nil
+            var last = [['Last flood time', [self._TimeStr(plant.LastFloodTime)]]]
+            if plant.LastFlowRate != nil
+                last.push(['Last flow rate',
+                           [string.format("%01.1f мл/мин", plant.LastFlowRate)]])
+            end
+            groups.push(['Последний полив', last])
+        end
+        return groups
+    end
+
+    def web_soil_detail(pi)
+        # Интерпретатор модели канала: обходит секции, собирает параметры
+        # через web_kit.wparam_stack и шлёт каждую секцию отдельным
+        # фрагментом. Падение в модели или рендере не должно ронять секции
+        # соседей — try/except здесь и собственные try в web_sensor().
+        var plant = self.d.plants[pi]
         try
-            var ss = plant.SoilSensor
-            var msg = web_kit.wgrp("Уставки")
-            msg = msg .. string.format(
-                web_kit.wrow("Сухо", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>") ..
-                web_kit.wrow("Влажно", "%01.2f raw<br/><span class='stk'>%01.1f%% u</span>"),
-                plant.TargetDry, ss.Raw2Hu(plant.TargetDry),
-                plant.TargetWet, ss.Raw2Hu(plant.TargetWet)
-                )
-            # Per-channel settings button: opens the JS popup with this channel's
-            # Soil Dry/Wet, Dry threshold, Soak start dose, Max flood and flood
-            # dose default (current values in data-* attrs). Lives in the Уставки
-            # group. The popup itself sits in document.body (outside #l1) so it
-            # survives the 2.3s polling redraw; see _wdSettingsOpen in
-            # web_add_main_button().
-            msg = msg .. string.format(
-                web_kit.wrow("Настройки порогов",
-                     "<a class='wcbtn' data-num='%i' data-dry='%i' data-wet='%i' data-thr='%i' data-dose='%s' data-maxflood='%i' data-c1def='%i' " ..
-                     web_kit.wonclick('_wdSettingsOpen(this);return false;') .. ">⚙</a>"),
-                num, plant.TargetDry, plant.TargetWet,
-                plant.DryThreshold,
-                str(int(real(self.d.Store.get(plant.Prefix .. 'SoakStartDose')))),
-                int(real(self.d.Store.get(plant.Prefix .. 'MaxFlood'))),
-                int(real(self.d.Store.get(plant.Prefix .. 'Counter1FloodDefault'))))
-            msg = msg .. web_kit.wgrp("Датчик")
-            # Values may be nil until the first sensor Update (unconnected
-            # channels). Guard each one: show "nil" instead of crashing the
-            # whole section (which would drop the header and make the accordion
-            # un-collapsible).
-            var rawv = ss.Raw != nil ? str(ss.Raw) : "nil"
-            var rawema = ss.RawEma != nil ? string.format("%01.4f", ss.RawEma) : "nil"
-            var hu = ss.RawEma != nil ? string.format("%01.1f%%", ss.Raw2Hu(ss.RawEma)) : "nil"
-            var mv = ss.Raw != nil ? string.format("%01.1f mV", ss.Raw2mV(ss.Raw)) : "nil"
-            msg = msg .. string.format(
-                web_kit.wrow("Raw", "%s") .. web_kit.wrow("Raw EMA(%i)", "%s"),
-                rawv, ss.EMAN, rawema)
-            msg = msg .. string.format(
-                web_kit.wrow("Hymidity u", "%s") .. web_kit.wrow("mV", "%s"),
-                hu, mv)
-            tasmota.web_send_decimal(msg)
-            var dry_status = "none"
-            if plant.Preset != nil && plant.Preset.Type == 'dry'
-                dry_status = "soak, dose " .. (plant.DrySoakDose != nil ? str(plant.DrySoakDose) : "?")
-            end
-            # Session: active (flooding in progress) / wait. Pump: run|idle;
-            # the live flow rate (ml/min) is shown while the pump runs.
-            var sess = plant.AutofloodInProcess ? "active" : "wait"
-            var pump = plant.WaterIsOn() ? "run" : "idle"
-            if plant.WaterIsOn()
-                var rate = self.d.FlowSensors[0].Rate
-                if rate != nil
-                    pump = pump .. " " .. string.format("%01.1f", rate * 60) .. " ml/min"
-                end
-            end
-            msg = string.format(
-                      web_kit.wgrp("Сеанс") .. web_kit.wrow("Сеанс полива", "%s") .. web_kit.wrow("Вода", "%s"),
-                      sess, pump)
-            tasmota.web_send_decimal(msg)
-            msg = string.format(
-                      web_kit.wgrp("Размачивание") .. web_kit.wrow("Dry soak", "%s") .. web_kit.wrow("Dry threshold", "%i"),
-                      dry_status, plant.DryThreshold)
-            tasmota.web_send_decimal(msg)
-            msg = web_kit.wgrp("Текущий сеанс")
-            if plant.SoilMaxHymidity != nil
-                msg += string.format(
-                        web_kit.wrow("SoilHymidity" .. str(num) .. " max", "%i"),
-                        plant.SoilMaxHymidity)
-                if plant.SoilMaxHymidityTime != nil
-                    msg += string.format(
-                            web_kit.wrow("SoilHymidity" .. str(num) .. " max time", "%s"),
-                            self._TimeStr(plant.SoilMaxHymidityTime))
-                end
-            end
-            msg += string.format(
-                    web_kit.wrow("LastFloodVol (мл)", "%i") .. web_kit.wrow("SoilHPreFlood", "%s"),
-                    int(plant.LastFloodVol), str(plant.SoilHPreFlood))
-            tasmota.web_send_decimal(msg)
-            msg = web_kit.wgrp("Предыдущий сеанс")
-            import introspect
-            for k: ['PrevFloodedVol', 'PrevSoilHPreFlood', 'PrevSoilMaxHymidity']
-                msg += string.format(
-                          web_kit.wrow("%s", "%s"),
-                          k, str(introspect.get(plant, k)))
-            end
-            tasmota.web_send_decimal(msg)
-            # Last fill per channel: date + average flow rate. Persisted as
-            # P{Num}LastFloodTime / P{Num}LastFlowRate (see _record_flood), so
-            # the group survives a reboot. Emitted only when a fill has been
-            # recorded (LastFloodTime set).
-            if plant.LastFloodTime != nil
-                msg = web_kit.wgrp("Последний полив")
-                msg += string.format(web_kit.wrow("Last flood time", "%s"), self._TimeStr(plant.LastFloodTime))
-                if plant.LastFlowRate != nil
-                    msg += string.format(web_kit.wrow("Last flow rate", "%01.1f мл/мин"), plant.LastFlowRate)
+            var groups = self._soil_model(plant, plant.SoilSensor)
+            for g: groups
+                var msg = web_kit.wgrp(g[0])
+                for r: g[1]
+                    msg += web_kit.wparam_stack(r[0], r[1])
                 end
                 tasmota.web_send_decimal(msg)
             end
@@ -840,10 +713,9 @@ class Web
         # Session/pump state is per-channel and lives in each soil section.
         if exp_flow
             try
-                msg = string.format(
-                          web_kit.wgrp("Сброс") ..
+                msg = web_kit.wgrp("Сброс") ..
                           web_kit.wrow("Water counter",
-                               "<a class='wcbtn' href='#' " .. web_kit.wonclick('if(confirm("Сбросить счётчик воды?")){la("&m_reset_water_counter_1=1");}return false;') .. ">Reset</a>"))
+                               "<a class='wcbtn' href='#' " .. web_kit.wonclick('if(confirm("Сбросить счётчик воды?")){la("&m_reset_water_counter_1=1");}return false;') .. ">Reset</a>")
                 tasmota.web_send_decimal(msg)
             except .. as e
                 print("web_sensor: reset counter row failed " .. e)

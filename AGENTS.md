@@ -55,7 +55,7 @@
 | Файл | Что внутри | Кто импортирует |
 |---|---|---|
 | `cfg.be` | `MAX_CHANNELS`, `BOOT_INIT_DELAY_MS` | `watering.be`, `web.be` |
-| `web_kit.be` | `wrow`, `wgrp`, `wonclick`, `wtoggle`, `wpill` | `fsm.be`, `web.be` |
+| `web_kit.be` | слой оформления: сниппеты `T_*`, `wrow`, `wgrp`, `wonclick`, `wtoggle`, `wpill`, `wsec_head`, `wsec_icon`, `wparam_stack`, активы `css` и `main_js(n)` | `web.be` |
 | `sensors.be` | `EMA`, `AbstractSensor`, `SoilSensor`, `FlowSensor` (измерение + калибровка; отрисовка перенесена в `web.be`, ADR-6 закрыт) | `watering.be`, `fsm.be` |
 | `store.be` | `PersistStore` — **единственный** импортёр `persist` во всём проекте | `watering.be`, `fsm.be` |
 | `fsm.be` | `FloodPreset`, `Plant` | `watering.be` |

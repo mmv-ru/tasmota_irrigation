@@ -2,7 +2,6 @@ import strict
 import string
 
 import cfg
-import web_kit
 import store
 import sensors
 import fsm
