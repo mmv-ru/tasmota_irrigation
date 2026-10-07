@@ -1,0 +1,39 @@
+diff --git a/src/be_exec.c b/src/be_exec.c
+index 9be2793..7a5f124 100644
+--- a/src/be_exec.c
++++ b/src/be_exec.c
+@@ -391,6 +391,16 @@ static void stack_resize(bvm *vm, size_t size)
+     be_free(vm, old, os);
+ #endif
+     vm->stacktop = vm->stack + size;  /* compute new stacktop */
++    {   /* slots beyond the old end hold garbage after realloc, but precall can
++         * include them in [reg, top) before the VM writes them and the GC scans
++         * that whole range (premark_stack) -> nil them so mark_gray never sees
++         * a garbage type/pointer (local patch on v1.1.0, see tests/patches/) */
++        size_t oc = os / sizeof(bvalue); /* old capacity in slots */
++        size_t i;
++        for (i = (oc < size) ? oc : size; i < size; ++i) {
++            var_setnil(vm->stack + i);
++        }
++    }
+     offset = ptr_offset(vm->stack, old);  /* compute the address difference between old and ne stack addresses */
+     /* update callframes */
+     update_callstack(vm, offset);
+diff --git a/src/be_vm.c b/src/be_vm.c
+index e28c03f..01076cb 100644
+--- a/src/be_vm.c
++++ b/src/be_vm.c
+@@ -465,6 +465,13 @@ BERRY_API bvm* be_vm_new(void)
+     vm->stacktop = vm->stack + BE_STACK_START;
+     vm->reg = vm->stack;
+     vm->top = vm->reg;
++    {   /* raw malloc: nil-fill so the first GC can never scan garbage slots
++         * below top (local patch on v1.1.0, see tests/patches/) */
++        int i;
++        for (i = 0; i < BE_STACK_START; ++i) {
++            var_setnil(vm->stack + i);
++        }
++    }
+     be_globalvar_init(vm);
+     be_gc_setpause(vm, 1);
+     be_loadlibs(vm);

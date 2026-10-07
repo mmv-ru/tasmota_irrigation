@@ -21,9 +21,18 @@ python3 tests/build.py tests/cases/10_rule_power_on.be  # один тест
 
 | Зависимость | Версия | Где зафиксировано |
 |-------------|--------|-------------------|
-| Berry VM | `v1.1.0` (тег, коммит `b5ede66`) | `tests/setup_berry.sh` (`BERRY_REF`) |
+| Berry VM | `v1.1.0` (тег, коммит `b5ede66`) + локальный патч `tests/patches/berry-1.1.0-gc-stack-init.patch` | `tests/setup_berry.sh` (`BERRY_REF`, патч применяется автоматически) |
 | Сборка | Makefile репо + `gcc` + `libreadline` (cmake НЕ нужен для v1.1.0) | `tests/setup_berry.sh` |
 | Python | `>= 3.10` | `tests/build.py`, `tests/run_all.py` |
+
+**Зачем патч:** в чистом v1.1.0 после `stack_resize` новые слоты VM-стека остаются
+мусорными, `precall` может захватить их `vm->top`'ом до записи, а GC
+(`premark_stack` → `mark_gray_var`) сканирует диапазон `[stack, top)` целиком —
+при определённой раскладке памяти это nondeterministic SIGSEGV (воспроизводилось
+на тесте `91_golden_service` при запуске с абсолютным путём; апстрим и в master
+не починил). Патч nil-заполняет новый хвост стека в `stack_resize` и начальный
+стек в `be_vm_new`. Проверяется valgrind: до патча — отчёт GC на неинициализированном
+слоте, после — только старый парсерский шум `be_eqstr` (есть и на HEAD, без падений).
 
 ```
 bash tests/setup_berry.sh
