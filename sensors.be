@@ -2,8 +2,6 @@ import strict
 import string
 import json
 
-import web_kit
-
 var sensors = module('sensors')
 
 def EMA(oldEMA, N, NewValue)
@@ -164,43 +162,6 @@ class SoilSensor: AbstractSensor
             return undefined
         end
     end
-
-    def web_sensor(expanded, sec, plant)
-        var msg
-        var nm = "Канал " .. str(plant.Num)
-        var arrow = expanded ? "▲" : "▼"
-        # Per-channel status icon in the header: 💧 wait / ⏳ watering
-        # session / 💦 pump running, shown left of the title. A JS tooltip
-        # (#wdtt, opened by a click on the icon) shows a styled legend of all
-        # three states, the current one marked "→".
-        var st = "💧"
-        var stc = "wait"
-        if plant.WaterIsOn()
-            st = "💦"
-            stc = "run"
-        elif plant.AutofloodInProcess
-            st = "⏳"
-            stc = "sess"
-        end
-        # Section header as raw HTML: la() only rewrites the {s}/{m}/{e} tokens,
-        # any other markup passes through to #l1 unchanged (border-radius etc.
-        # styled by the injected <style> block, see web_add_main_button()).
-        msg = "<tr class='sec'><th class='hdr' " .. web_kit.wtoggle(sec) .. ">"
-        msg = msg .. "<span class='st " .. stc .. "' " .. web_kit.wonclick('_wdShowTT(this,event)') .. ">" .. st .. "</span>" .. nm
-        msg = msg .. "<span class='params'>"
-        if self.RawEma != nil
-            msg = msg .. web_kit.wpill("raw", string.format("%01.2f", self.RawEma))
-        end
-        msg = msg .. web_kit.wpill("сухо", str(plant.TargetDry)) .. web_kit.wpill("влажно", str(plant.TargetWet)) .. "</span>" ..
-                    "</th><td class='tgl'><a class='chev' href='#' " .. web_kit.wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
-        # Expanded rows (Уставки/Датчик/settings button) live in
-        # Watering.web_soil_detail — one method owns the whole channel detail.
-        # Flooding/session state moved to the expanded detail too: the header
-        # carries the status icon instead of a per-row text.
-
-        tasmota.web_send_decimal(msg)
-
-    end
 end
 
 
@@ -303,24 +264,6 @@ class FlowSensor: AbstractSensor
         else
             raise 'attribute_error', "the 'SoilSensor' object has no attribute '"..name.."'"
         end
-    end
-
-    def web_sensor(expanded, sec)
-        var msg
-        var nm = "Common"
-        var arrow = expanded ? "▲" : "▼"
-        msg = "<tr class='sec'><th class='hdr' " .. web_kit.wtoggle(sec) .. ">" .. nm ..
-              "</th><td class='tgl'><a class='chev' href='#' " .. web_kit.wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
-        msg = msg .. string.format(
-                  web_kit.wrow("Water used", "%01.1f ml"),
-                  self.Raw2Flow(self.Raw))
-        if expanded
-            msg = msg .. string.format(
-                      web_kit.wrow("Water flow", "%i pulse/s<br/><span class='stk'>%01.1f ml/min</span>"),
-                      self.RawRate, self.Rate != nil ? self.Rate*60 : nil)
-        end
-
-        tasmota.web_send_decimal(msg)
     end
 end
 

@@ -525,12 +525,70 @@ class Web
 
 
 
+    def _soil_section(expanded, sec, plant, sensor)
+        # Moved verbatim from SoilSensor.web_sensor (ADR-6 closed): pure
+        # rendering from explicit inputs; self. sensor reads became sensor.
+        var msg
+        var nm = "Канал " .. str(plant.Num)
+        var arrow = expanded ? "▲" : "▼"
+        # Per-channel status icon in the header: 💧 wait / ⏳ watering
+        # session / 💦 pump running, shown left of the title. A JS tooltip
+        # (#wdtt, opened by a click on the icon) shows a styled legend of all
+        # three states, the current one marked "→".
+        var st = "💧"
+        var stc = "wait"
+        if plant.WaterIsOn()
+            st = "💦"
+            stc = "run"
+        elif plant.AutofloodInProcess
+            st = "⏳"
+            stc = "sess"
+        end
+        # Section header as raw HTML: la() only rewrites the {s}/{m}/{e} tokens,
+        # any other markup passes through to #l1 unchanged (border-radius etc.
+        # styled by the injected <style> block, see web_add_main_button()).
+        msg = "<tr class='sec'><th class='hdr' " .. web_kit.wtoggle(sec) .. ">"
+        msg = msg .. "<span class='st " .. stc .. "' " .. web_kit.wonclick('_wdShowTT(this,event)') .. ">" .. st .. "</span>" .. nm
+        msg = msg .. "<span class='params'>"
+        if sensor.RawEma != nil
+            msg = msg .. web_kit.wpill("raw", string.format("%01.2f", sensor.RawEma))
+        end
+        msg = msg .. web_kit.wpill("сухо", str(plant.TargetDry)) .. web_kit.wpill("влажно", str(plant.TargetWet)) .. "</span>" ..
+                    "</th><td class='tgl'><a class='chev' href='#' " .. web_kit.wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
+        # Expanded rows (Уставки/Датчик/settings button) live in
+        # Watering.web_soil_detail — one method owns the whole channel detail.
+        # Flooding/session state moved to the expanded detail too: the header
+        # carries the status icon instead of a per-row text.
+
+        tasmota.web_send_decimal(msg)
+
+    end
+
+    def _flow_section(expanded, sec, sensor)
+        # Moved verbatim from FlowSensor.web_sensor (ADR-6 closed).
+        var msg
+        var nm = "Common"
+        var arrow = expanded ? "▲" : "▼"
+        msg = "<tr class='sec'><th class='hdr' " .. web_kit.wtoggle(sec) .. ">" .. nm ..
+              "</th><td class='tgl'><a class='chev' href='#' " .. web_kit.wtoggle(sec) .. ">" .. arrow .. "</a></td></tr>"
+        msg = msg .. string.format(
+                  web_kit.wrow("Water used", "%01.1f ml"),
+                  sensor.Raw2Flow(sensor.Raw))
+        if expanded
+            msg = msg .. string.format(
+                      web_kit.wrow("Water flow", "%i pulse/s<br/><span class='stk'>%01.1f ml/min</span>"),
+                      sensor.RawRate, sensor.Rate != nil ? sensor.Rate*60 : nil)
+        end
+
+        tasmota.web_send_decimal(msg)
+    end
+
     def web_soil_detail(pi)
         # Per-channel accordion detail, shared by every soil section: sensor
         # thresholds (Уставки) with the settings button, live sensor values
         # (Датчик), session/pump status, dry soak and the previous/current
         # session stats — everything under one expanded channel. One method
-        # owns the whole detail (SoilSensor.web_sensor only emits the header).
+        # owns the whole detail (_soil_section only emits the header).
         var plant = self.d.plants[pi]
         var num = plant.Num
         try
@@ -757,7 +815,7 @@ class Web
         # expansion. Same logic for every channel (see web_soil_detail()).
         for i: 0..(self.d.NumChannels - 1)
             try
-                self.d.SoilSensors[i].web_sensor(exp_soil[i], 'soil' + str(i + 1), self.d.plants[i])
+                self._soil_section(exp_soil[i], 'soil' + str(i + 1), self.d.plants[i], self.d.SoilSensors[i])
             except .. as e
                 print("web_sensor: soil" .. str(i + 1) .. " row failed " .. e)
             end
@@ -771,7 +829,7 @@ class Web
         end
 
         try
-            self.d.FlowSensors[0].web_sensor(exp_flow, 'flow')
+            self._flow_section(exp_flow, 'flow', self.d.FlowSensors[0])
         except .. as e
             print("web_sensor: flow1 row failed " .. e)
         end

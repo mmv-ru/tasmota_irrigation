@@ -55,11 +55,11 @@
 | Файл | Что внутри | Кто импортирует |
 |---|---|---|
 | `cfg.be` | `MAX_CHANNELS`, `BOOT_INIT_DELAY_MS` | `watering.be`, `web.be` |
-| `web_kit.be` | `wrow`, `wgrp`, `wonclick`, `wtoggle`, `wpill` | `sensors.be`, `fsm.be`, `web.be` |
-| `sensors.be` | `EMA`, `AbstractSensor`, `SoilSensor`, `FlowSensor` (презентация `web_sensor` остаётся здесь — ADR-6) | `watering.be`, `fsm.be` |
+| `web_kit.be` | `wrow`, `wgrp`, `wonclick`, `wtoggle`, `wpill` | `fsm.be`, `web.be` |
+| `sensors.be` | `EMA`, `AbstractSensor`, `SoilSensor`, `FlowSensor` (измерение + калибровка; отрисовка перенесена в `web.be`, ADR-6 закрыт) | `watering.be`, `fsm.be` |
 | `store.be` | `PersistStore` — **единственный** импортёр `persist` во всём проекте | `watering.be`, `fsm.be` |
 | `fsm.be` | `FloodPreset`, `Plant` | `watering.be` |
-| `web.be` | `class Web`: главная страница, `/svc` + 12 хелперов, `_TimeStr`. Держит `var d` — ссылку на драйвера, внедрённую в `init(d)` | `watering.be` |
+| `web.be` | `class Web`: главная страница (`_soil_section`/`_flow_section` — заголовки секций, `web_soil_detail` — тело), `/svc` + 12 хелперов, `_TimeStr`. Держит `var d` — ссылку на драйвера, внедрённую в `init(d)` | `watering.be` |
 | `watering.be` | импорты, `class Watering` (диспетчер, `init`, телеметрия, 4 делегата → `self.ui.*`), бут-эпилог | — это точка входа |
 
 Правило границ: единственное обратное ребро — `web → драйвер` через `self.d` (duck-typed,
