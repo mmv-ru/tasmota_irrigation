@@ -7,12 +7,14 @@ the CLI contract exactly as specified - no extra flags to test around.
 
 Run: python3 scripts/test_mindmap_to_md.py
 """
+import html
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -29,24 +31,54 @@ def make_mm(node):
     Nesting comes from element nesting, not from whitespace: FreeMind ignores
     indentation. A node is either a plain string (leaf) or a dict with keys
     "text", optional "icon", and optional "children".
+
+    Rich-content forms are spelled out explicitly because FreeMind stores a
+    multi-line label outside TEXT, with no TEXT attribute at all:
+
+      "rich": ["абзац", ["строка", "строка"]]  -> <richcontent TYPE="NODE">
+      "note": [...]                            -> <richcontent TYPE="NOTE">
+      "no_text": True                          -> a node with no label
+      "xml": "<...>"                           -> raw markup inside the node
+
+    A nested list is one paragraph whose lines are joined by <br/>. "xml" is
+    the escape hatch for markup the structured form cannot express.
     """
     lines = ['<map version="1.1.0">']
 
+    def rich_block(pad, kind, paragraphs):
+        block = ['%s<richcontent TYPE="%s"><html><head></head><body>'
+                 % (pad, kind)]
+        for para in paragraphs:
+            para_lines = para if isinstance(para, list) else [para]
+            text = "<br />".join(escape(line) for line in para_lines)
+            block.append("%s  <p>%s</p>" % (pad, text))
+        block.append("%s</body></html></richcontent>" % pad)
+        return block
+
     def emit(current, depth):
+        rich = note = None
+        raw = ""
         if isinstance(current, str):
             text, icon, children = current, (), ()
         else:
-            text = current["text"]
-            raw = current.get("icon", ())
-            if isinstance(raw, str):
-                icon = (raw,) if raw else ()
-            else:
-                icon = tuple(raw)
+            text = current.get("text")
+            raw_icons = current.get("icon", ())
+            icon = (raw_icons,) if isinstance(raw_icons, str) else tuple(raw_icons)
             children = current.get("children", ())
+            rich = current.get("rich")
+            note = current.get("note")
+            raw = current.get("xml", "")
         pad = " " * (4 * depth)
-        lines.append('%s<node TEXT="%s">' % (pad, escape(text)))
+        label = "" if text is None else ' TEXT="%s"' % escape(text)
+        lines.append("%s<node%s>" % (pad, label))
+        if rich is not None:
+            lines.extend(rich_block(pad + "  ", "NODE", rich))
+        if note is not None:
+            lines.extend(rich_block(pad + "  ", "NOTE", note))
         for name in icon:
             lines.append('%s  <icon BUILTIN="%s"/>' % (pad, name))
+        if raw:
+            lines.append("%s  %s" % (pad, raw))
         for child in children:
             emit(child, depth + 1)
         lines.append("%s</node>" % pad)
@@ -71,6 +103,36 @@ ICON_FIXTURE = make_mm({"text": "Корень", "children": [
 ]})
 
 
+def indent(line):
+    """Leading spaces of a rendered line."""
+    return len(line) - len(line.lstrip())
+
+
+def label_head(node):
+    """The first line of a node's label, computed independently of the converter.
+
+    Used as a signature: if a node's opening text is absent from the snapshot,
+    the node vanished. Deliberately stops at the first visual line, so this
+    check knows nothing about how line breaks are rendered.
+    """
+    plain = html.unescape(node.get("TEXT") or "")
+    if plain.strip():
+        head = plain.splitlines()[0]
+    else:
+        rich = node.find("richcontent")
+        if rich is None or rich.get("TYPE") != "NODE":
+            return ""
+        body = rich.find("html/body")
+        if body is None:
+            return ""
+        head = ""
+        for para in body.iter("p"):
+            head = para.text or ""
+            if head.strip():
+                break
+    return re.sub(r"\s+", " ", head).strip()[:60]
+
+
 class ConverterCase(unittest.TestCase):
     """Runs the converter out of a throwaway copy of the repo layout."""
 
@@ -93,6 +155,20 @@ class ConverterCase(unittest.TestCase):
     def write_artifact(self, text="снимок\n"):
         self.out.parent.mkdir(parents=True, exist_ok=True)
         self.out.write_text(text, encoding="utf-8")
+
+    def use_map(self, tree):
+        """Replace the default fixture with the given tree."""
+        (self.dir / SOURCE_NAME).write_text(make_mm(tree), encoding="utf-8")
+
+    def write_map(self, xml):
+        """Replace the default fixture with raw FreeMind XML."""
+        (self.dir / SOURCE_NAME).write_text(xml, encoding="utf-8")
+
+    def rendered(self):
+        """Convert and return the artifact text."""
+        result = self.run_converter()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return self.out.read_text(encoding="utf-8")
 
 
 class TestGenerate(ConverterCase):
@@ -289,32 +365,174 @@ class TestIcons(ConverterCase):
                              % (icon, count, got.get(icon, 0)))
 
 
+class TestRichContent(ConverterCase):
+    """A multi-line label lives in <richcontent TYPE="NODE">, not in TEXT.
+
+    FreeMind shows both forms identically, so a converter reading TEXT only
+    drops the node with no visible symptom. Counts here are fixture counts,
+    not properties of the author's map.
+    """
+
+    def test_rich_label_is_rendered_and_counted(self):
+        self.use_map({"text": "Корень", "children": [
+            {"rich": ["Многострочная подпись"]}]})
+        result = self.run_converter()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("2 nodes", result.stdout)
+        self.assertIn("Многострочная подпись",
+                      self.out.read_text(encoding="utf-8"))
+
+    def test_paragraph_break_becomes_one_separator(self):
+        self.use_map({"text": "Корень", "children": [
+            {"rich": ["Первая строка", "Вторая строка"]}]})
+        line = [l for l in self.rendered().splitlines()
+                if "Первая строка" in l][0]
+        text = line.split("- ", 1)[1]
+        self.assertEqual(text, "Первая строка · Вторая строка")
+        self.assertNotIn("  ", text)
+
+    def test_br_inside_paragraph_and_empty_paragraph(self):
+        self.use_map({"text": "Корень", "children": [
+            {"rich": [["Один", "Два"], "", "Три"]}]})
+        line = [l for l in self.rendered().splitlines() if "Один" in l][0]
+        self.assertEqual(line.split("- ", 1)[1], "Один · Два · Три")
+
+    def test_newlines_inside_text_become_separators(self):
+        # FreeMind also writes &#xa; into TEXT (4 nodes of the real map do),
+        # which would otherwise put a raw newline inside a bullet.
+        self.write_map(
+            '<map version="1.1.0">\n'
+            '  <node TEXT="Корень">\n'
+            '    <node TEXT="Строка один&#xa;Строка два"/>\n'
+            "  </node>\n"
+            "</map>\n")
+        line = [l for l in self.rendered().splitlines() if "Строка один" in l][0]
+        self.assertEqual(line.split("- ", 1)[1], "Строка один · Строка два")
+
+    def test_multiline_label_keeps_children_under_it(self):
+        self.use_map({"text": "Корень", "children": [
+            {"rich": ["Родитель", "с переносом"], "children": ["Ребёнок"]}]})
+        lines = self.rendered().splitlines()
+        parent = [l for l in lines if "Родитель" in l][0]
+        child = [l for l in lines if "Ребёнок" in l][0]
+        self.assertEqual(indent(child), indent(parent) + 2)
+
+    def test_text_wins_over_a_note(self):
+        self.use_map({"text": "Подпись", "note": ["Скрытая заметка"]})
+        text = self.rendered()
+        self.assertIn("Подпись", text)
+        self.assertNotIn("Скрытая заметка", text)
+
+    def test_note_only_node_is_skipped_but_its_children_survive(self):
+        self.use_map({"text": "Корень", "children": [
+            {"note": ["Только заметка"], "children": ["Ребёнок"]}]})
+        text = self.rendered()
+        self.assertNotIn("Только заметка", text)
+        child = [l for l in text.splitlines() if "Ребёнок" in l][0]
+        # Корень is depth 0, the skipped node occupies depth 1, so its child
+        # must stay at depth 2 instead of being promoted.
+        self.assertEqual(indent(child), 4)
+
+    def test_entities_are_decoded_and_nbsp_collapses(self):
+        self.use_map({"text": "Корень", "children": [
+            {"no_text": True,
+             "xml": '<richcontent TYPE="NODE"><html><head></head><body>'
+                    '<p>Границы:&#160;&#8211;25&#160;&#176;C &amp; +100</p>'
+                    '</body></html></richcontent>'}]})
+        line = [l for l in self.rendered().splitlines() if "Границы" in l][0]
+        self.assertEqual(line.split("- ", 1)[1], "Границы: –25 °C & +100")
+
+    def test_formatting_tags_do_not_leak(self):
+        self.use_map({"text": "Корень", "children": [
+            {"no_text": True,
+             "xml": '<richcontent TYPE="NODE"><html><head></head><body>'
+                    '<p>Жирный <b>текст</b> и <i>курсив</i></p>'
+                    '</body></html></richcontent>'}]})
+        line = [l for l in self.rendered().splitlines() if "Жирный" in l][0]
+        self.assertIn("Жирный текст и курсив", line)
+        self.assertNotIn("<b>", line)
+        self.assertNotIn("<i>", line)
+
+    def test_icons_stay_in_front_of_a_multiline_label(self):
+        self.use_map({"text": "Корень", "children": [
+            {"rich": ["Первый", "Второй"], "icon": ["idea", "button_ok"]}]})
+        line = [l for l in self.rendered().splitlines() if "Первый" in l][0]
+        self.assertIn("[icon:idea] [icon:button_ok] Первый · Второй", line)
+
+
 class TestRealMap(ConverterCase):
-    """The real 470-node map, run through a copy so the repo is untouched."""
+    """The committed map, checked against itself - no expected node counts.
+
+    A hard-coded "N nodes" turns every edit in FreeMind into a red test, and
+    the lesson learned is to bump the number without reading it. What matters
+    is that no node disappears and that the shape of the tree survives.
+    """
 
     def setUp(self):
         super().setUp()
-        (self.dir / SOURCE_NAME).write_text(
-            (REPO / SOURCE_NAME).read_text(encoding="utf-8"), encoding="utf-8")
+        self.source = (REPO / SOURCE_NAME).read_text(encoding="utf-8")
+        (self.dir / SOURCE_NAME).write_text(self.source, encoding="utf-8")
 
-    def test_node_count_matches_the_recon_figure(self):
+    def tree(self):
+        return ET.fromstring(self.source)
+
+    def test_no_node_label_vanishes(self):
         result = self.run_converter()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("470 nodes", result.stdout)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        produced = self.out.read_text(encoding="utf-8")
+        nodes = list(self.tree().iter("node"))
+        self.assertGreater(len(nodes), 100,
+                           "source looks empty; test proves nothing")
+        missing = [head for head in (label_head(n) for n in nodes)
+                   if head and head not in produced]
+        self.assertEqual(missing, [], "nodes lost in conversion: %r"
+                         % missing[:5])
 
-    def test_goals_branch_survives_conversion(self):
+    def test_tree_depth_is_preserved(self):
         self.run_converter()
-        text = self.out.read_text(encoding="utf-8")
-        self.assertIn("Цели", text)
-        self.assertIn("забыть", text)
-
-    def test_deepest_branch_is_not_flattened(self):
-        self.run_converter()
-        lines = self.out.read_text(encoding="utf-8").splitlines()
-        indents = [len(l) - len(l.lstrip()) for l in lines
+        indents = [indent(l) for l in self.out.read_text(encoding="utf-8").splitlines()
                    if l.lstrip().startswith("- ")]
-        self.assertGreater(max(indents), 0, "tree was flattened")
-        self.assertGreater(len(set(indents)), 3, "tree is too shallow to be the real map")
+        self.assertGreater(len(set(indents)), 3,
+                           "tree is too shallow to be the real map")
+
+        deepest = 0
+
+        def visit(node, depth):
+            nonlocal deepest
+            if label_head(node):
+                deepest = max(deepest, depth)
+            for child in node.findall("node"):
+                visit(child, depth + 1)
+
+        for top in self.tree().findall("node"):
+            visit(top, 0)
+        self.assertEqual(max(indents), 2 * deepest)
+
+    def test_each_top_level_node_is_a_heading(self):
+        self.run_converter()
+        produced = self.out.read_text(encoding="utf-8").splitlines()
+        headings = [l for l in produced if l.startswith("## ")]
+        tops = self.tree().findall("node")
+        self.assertEqual(len(headings), len(tops),
+                         "top-level nodes lost: %r" % headings)
+        for top, heading in zip(tops, headings):
+            self.assertIn(label_head(top), heading,
+                          "heading belongs to another node")
+
+
+class TestCommittedArtifact(unittest.TestCase):
+    """The repo's own snapshot must match the repo's own map.
+
+    This is the drift gate: the map is edited in FreeMind, and nothing else
+    would notice a stale artifact. Read-only, and silent about the map size.
+    """
+
+    def test_committed_snapshot_is_current(self):
+        result = subprocess.run(
+            [sys.executable, str(CONVERTER), "--check"],
+            cwd=REPO, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("up to date", result.stdout)
 
 
 if __name__ == "__main__":
