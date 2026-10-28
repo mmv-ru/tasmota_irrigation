@@ -76,7 +76,7 @@ section("lastflood_time_rate_survive_reboot")
 
 # _record_flood() persists the last-fill date + avg flow rate
 # (P{Num}LastFloodTime / P{Num}LastFlowRate); Plant.init() must restore them so
-# the web group "Последний полив" survives a reboot. Values written the same
+# the web rows "Текущий сеанс" (date + rate) survive a reboot. Values written the same
 # way _record_flood() does (Store.set, debounced policy).
 var p1 = wp1.plants[0]
 p1.LastFloodTime = SIM['rtc_local']

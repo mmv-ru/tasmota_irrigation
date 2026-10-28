@@ -511,6 +511,11 @@ class Web
         ]])
 
         # --- секция «Текущий сеанс» -----------------------------------------
+        # Дата и средний расход последнего полива — та же часть сессии, что и
+        # LastFloodVol (переехали сюда из отдельной группы «Последний полив»).
+        # Оба поля живут в Store (P{N}LastFloodTime / P{N}LastFlowRate, см.
+        # _record_flood) и переживают ребут; до первого полива значения nil и
+        # показываются как "nil".
         var cur = []
         if plant.SoilMaxHymidity != nil
             cur.push(['SoilHymidity' .. str(num) .. ' max',
@@ -522,6 +527,12 @@ class Web
         end
         cur.push(['LastFloodVol (мл)', [string.format("%i", int(plant.LastFloodVol))]])
         cur.push(['SoilHPreFlood', [str(plant.SoilHPreFlood)]])
+        # _TimeStr(nil) отдаёт Berry nil, который wparam_stack через %s печатает
+        # как "nil"; а %01.1f с nil дал бы пустую строку — поэтому guard.
+        cur.push(['Last flood time', [self._TimeStr(plant.LastFloodTime)]])
+        cur.push(['Last flow rate',
+                  [plant.LastFlowRate != nil ?
+                   string.format("%01.1f мл/мин", plant.LastFlowRate) : "nil"]])
         groups.push(['Текущий сеанс', cur])
 
         # --- секция «Предыдущий сеанс» --------------------------------------
@@ -530,19 +541,6 @@ class Web
             prev.push([k, [str(introspect.get(plant, k))]])
         end
         groups.push(['Предыдущий сеанс', prev])
-
-        # --- секция «Последний полив» (только после первого заполнения) -----
-        # Дата и средний расход последнего полива живут в Store
-        # (P{N}LastFloodTime / P{N}LastFlowRate, см. _record_flood) и
-        # переживают ребут; группа появляется только при записанном поливе.
-        if plant.LastFloodTime != nil
-            var last = [['Last flood time', [self._TimeStr(plant.LastFloodTime)]]]
-            if plant.LastFlowRate != nil
-                last.push(['Last flow rate',
-                           [string.format("%01.1f мл/мин", plant.LastFlowRate)]])
-            end
-            groups.push(['Последний полив', last])
-        end
         return groups
     end
 

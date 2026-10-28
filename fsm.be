@@ -439,8 +439,8 @@ self.Counter1BeforeStartTicks = self.Owner.FlowSensors[0].Raw
         var DeltaMl = CounterDeltaTicks * fscale
         self.LastFloodVol += DeltaMl
         # Average flow (ml/min) of this channel's last fill: dose volume over
-        # its own pump-on duration. Persisted (see below) so the web group
-        # "Последний полив" survives a reboot.
+        # its own pump-on duration. Persisted (see below) so the web rows
+        # "Текущий сеанс" survive a reboot.
         if self.PumpRunMillis != nil && self.PumpRunMillis > 0
             self.LastFlowRate = (DeltaMl * 60000.0) / self.PumpRunMillis
         else

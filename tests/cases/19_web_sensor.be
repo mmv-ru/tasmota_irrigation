@@ -165,11 +165,12 @@ assert_true(string.find(j8, "ml/min") >= 0, "live flow rate shown while pump run
 tasmota.set_power(1, false)
 FS0.RawRate = nil
 
-section("web_sensor_last_flood_detail")
+section("web_sensor_last_flood_rows_in_current_session")
 
-# Last fill (date + average flow rate) is per-channel: with me=2 the group
-# appears under expanded channel 2, driven by that channel's own fields. The
-# old standalone "Последний полив" group at the page bottom is gone.
+# Last fill (date + average flow rate) is per-channel and now lives inside the
+# "Текущий сеанс" group (moved out of the old standalone "Последний полив"
+# group). With me=2 the rows belong to expanded channel 2 and carry its own
+# values.
 P1.LastFloodTime = SIM['rtc_local']
 P1.LastFlowRate = 25.5
 webserver.has_arg = def (name) return name == 'me' end
@@ -178,21 +179,29 @@ SIM['websend'] = []
 wp1.web_sensor()
 var jl = ""
 for m: SIM['websend'] jl = jl + m end
-assert_true(string.find(jl, "Последний полив</td>") >= 0, "last-flood group under expanded channel 2")
+assert_true(string.find(jl, "Последний полив") < 0, "standalone last-flood group is gone")
 assert_true(string.find(jl, "Last flood time") >= 0, "last flood time row present")
 assert_true(string.find(jl, "Last flow rate") >= 0, "last flow rate row present")
 assert_true(string.find(jl, "25.5") >= 0, "last flow rate value shown (ml/min)")
+# rows sit inside the current-session group: after its label, before "Предыдущий сеанс"
+assert_true(string.find(jl, "Текущий сеанс") < string.find(jl, "Last flood time"), "rows under current-session group")
+assert_true(string.find(jl, "Last flow rate") < string.find(jl, "Предыдущий сеанс"), "rows before previous-session group")
 
-section("web_sensor_last_flood_hidden_on_first_run")
+section("web_sensor_last_flood_shown_as_nil_before_first_run")
 
-# No last-flood group when the channel never flooded (LastFloodTime nil)
+# Before any fill (LastFloodTime/LastFlowRate nil) the two rows are still
+# present in "Текущий сеанс" and render as "nil" (like SoilHPreFlood).
 P1.LastFloodTime = nil
 P1.LastFlowRate = nil
 SIM['websend'] = []
 wp1.web_sensor()
 var jln = ""
 for m: SIM['websend'] jln = jln + m end
-assert_true(string.find(jln, "Последний полив</td>") < 0, "no last-flood group before any fill")
+assert_true(string.find(jln, "Последний полив") < 0, "no standalone last-flood group")
+assert_true(string.find(jln, "Last flood time") >= 0, "last flood time row present before first fill")
+assert_true(string.find(jln, "Last flow rate") >= 0, "last flow rate row present before first fill")
+assert_true(string.find(jln, "Last flood time</th><td>nil") >= 0, "last flood time renders nil")
+assert_true(string.find(jln, "Last flow rate</th><td>nil") >= 0, "last flow rate renders nil")
 
 section("web_sensor_channels_header_count")
 
